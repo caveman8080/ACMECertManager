@@ -20,7 +20,7 @@ namespace ACMECertManager
             _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MainWindow>();
             _certificates = CertificateStorage.Load();
             LoadCertificatesGrid();
-            Log("🚀 Grok ACME Certificate Manager started! Default = staging mode (safe)");
+            Log("🚀 ACME Certificate Manager started! Default = staging mode (safe)");
         }
 
         private void Log(string message)
@@ -87,7 +87,7 @@ namespace ACMECertManager
                 definition.Triggers.Add(new DailyTrigger { DaysInterval = 60 });
                 definition.Actions.Add(new ExecAction(System.AppContext.BaseDirectory, "--renew", null));
                 definition.Settings.Enabled = true;
-                ts.RootFolder.RegisterTaskDefinition("GrokACMECertManager_Renew", definition,
+                ts.RootFolder.RegisterTaskDefinition("ACMECertManager_Renew", definition,
                     TaskCreation.CreateOrUpdate, null, null, TaskLogonType.InteractiveToken);
                 Log("✅ Auto-renew task created in Windows Task Scheduler!");
                 MessageBox.Show("Auto-renew scheduled every 60 days!", "Success");
