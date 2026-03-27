@@ -1,0 +1,27 @@
+name: Build ACMECertManager
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Restore
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+    - name: Publish single .exe
+      run: dotnet publish ACMECertManager/ACMECertManager.csproj -c Release -r win-x64 --self-contained true --publish-single-file true --trimmed true -o publish
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ACMECertManager-exe
+        path: publish/ACMECertManager.exe
