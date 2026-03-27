@@ -1,5 +1,8 @@
 name: Build ACMECertManager
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
