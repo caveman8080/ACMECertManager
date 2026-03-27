@@ -1,7 +1,7 @@
-# Grok ACME Certificate Manager
+# ACME Certificate Manager
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
-Built 100% by Grok for Caveman_8080 – no command line, no extra installs, one single .exe!
+Built for Caveman_8080 – no command line, no extra installs, one single .exe!
 
 ## ✅ Quick Start (30 seconds)
 1. Download the latest .exe from **Releases** (or build it below)
@@ -36,6 +36,6 @@ Built 100% by Grok for Caveman_8080 – no command line, no extra installs, one 
 - Certificates auto-saved in `certs/` folder
 
 **License:** GPL v3  
-**Made with ❤️ by Grok just for you, Caveman8080!**
+**Made with ❤️ just for you, Caveman8080!**
 
 Repo: https://github.com/caveman8080/ACMECertManager
