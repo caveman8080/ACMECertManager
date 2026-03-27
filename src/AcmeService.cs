@@ -1,5 +1,6 @@
 using Certes;
 using Certes.Acme;
+using Certes.Pkcs;
 using System;
 using System.IO;
 using System.Linq;
@@ -17,18 +18,18 @@ namespace ACMECertManager
         {
             Directory.CreateDirectory(CertsFolder);
 
-            var acme = new AcmeContext(acmeUrl);
+            var acme = new AcmeContext(new Uri(acmeUrl));
 
             // Account (save once)
             IAccountContext account;
             if (File.Exists(AccountFile))
             {
-                account = acme.NewAccount(File.ReadAllText(AccountFile));
+                account = await acme.NewAccount(File.ReadAllText(AccountFile));
             }
             else
             {
                 account = await acme.NewAccount(email, true);
-                File.WriteAllText(AccountFile, account.Key.ToPem());
+                File.WriteAllText(AccountFile, acme.AccountKey.ToPem());
             }
 
             var order = await acme.NewOrder(domains);
@@ -37,19 +38,19 @@ namespace ACMECertManager
             foreach (var authz in await order.Authorizations())
             {
                 var challenge = await authz.Http();
-                using var server = new HttpChallengeServer(challenge.Token, challenge.KeyAuth);
+                using var server = new HttpChallengeServer(challenge.Token, challenge.KeyAuthz);
                 server.Start();
                 await challenge.Validate();
                 server.Stop();
             }
 
             // Generate cert
-            var csr = new CsrBuilder();
-            csr.AddName("CN", domains[0]);
-            foreach (var d in domains.Skip(1)) csr.AddName("DNS", d);
-
-            var cert = await order.Generate(csr);
-            var pfxBytes = cert.ToPfx().Build(domains[0], null);
+            var privateKey = KeyFactory.NewKey(KeyAlgorithm.RS256);
+            var cert = await order.Generate(new CsrInfo
+            {
+                CommonName = domains[0]
+            }, privateKey);
+            var pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
             var pfxPath = Path.Combine(CertsFolder, $"{domains[0]}.pfx");
             File.WriteAllBytes(pfxPath, pfxBytes);
 

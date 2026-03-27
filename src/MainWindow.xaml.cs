@@ -83,11 +83,12 @@ namespace ACMECertManager
             try
             {
                 using var ts = new TaskService();
-                var task = ts.GetTask("GrokACMECertManager_Renew") ?? ts.AddTask("GrokACMECertManager_Renew");
-                task.Definition.Triggers.Add(new DailyTrigger { DaysInterval = 60 });
-                task.Definition.Actions.Add(new ExecAction(System.Reflection.Assembly.GetExecutingAssembly().Location, "--renew", null));
-                task.Definition.Settings.Enabled = true;
-                task.Register();
+                var definition = ts.NewTask();
+                definition.Triggers.Add(new DailyTrigger { DaysInterval = 60 });
+                definition.Actions.Add(new ExecAction(System.AppContext.BaseDirectory, "--renew", null));
+                definition.Settings.Enabled = true;
+                ts.RootFolder.RegisterTaskDefinition("GrokACMECertManager_Renew", definition,
+                    TaskCreation.CreateOrUpdate, null, null, TaskLogonType.InteractiveToken);
                 Log("✅ Auto-renew task created in Windows Task Scheduler!");
                 MessageBox.Show("Auto-renew scheduled every 60 days!", "Success");
             }
