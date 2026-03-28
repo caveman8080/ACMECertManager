@@ -4,6 +4,14 @@
              StartupUri="MainWindow.xaml"
              ThemeMode="System">
     <Application.Resources>
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
+        <SolidColorBrush x:Key="InputBackgroundBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
+        <SolidColorBrush x:Key="PrimaryTextBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}"/>
+        <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}"/>
+        <SolidColorBrush x:Key="SecondaryTextBrush" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}"/>
+        <SolidColorBrush x:Key="SecondaryBrush" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}"/>
         <SolidColorBrush x:Key="WarningBrush" Color="#C42B1C"/>
     </Application.Resources>
 </Application>

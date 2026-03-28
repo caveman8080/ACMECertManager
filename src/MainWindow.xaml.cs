@@ -27,23 +27,22 @@ namespace ACMECertManager
         {
             InitializeComponent();
             _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MainWindow>();
-            
+
             // Initialize LogManager with the max size from app settings
             var app = (App)Application.Current;
             _logManager = new LogManager(RuntimePaths.LogsDirectory, app.MaxLogFileSizeMb);
-            
+
             UpdateAdminRelaunchVisibility();
-            SetAdvancedSettingsSelection(app.SavePemChainArtifacts);
             SetMaxLogFileSizeInput(app.MaxLogFileSizeMb);
-            
+
             _certificates = CertificateStorage.Load();
             LoadCertificatesGrid();
             LoadDnsPlugins();
             UpdateValidationUiState();
-            
+
             // Load persisted logs if they exist
             LoadPersistedLogs();
-            
+
             Log("🚀 ACME Certificate Manager started! Default = staging mode (safe)");
         }
 
@@ -61,18 +60,8 @@ namespace ACMECertManager
             {
                 // Keep running if persistent logging fails
             }
-            
+
             UpdateLogStatistics();
-        }
-
-        private void SetAdvancedSettingsSelection(bool savePemChainArtifacts)
-        {
-            if (chkSavePemChainArtifacts is null)
-            {
-                return;
-            }
-
-            chkSavePemChainArtifacts.IsChecked = savePemChainArtifacts;
         }
 
         private async void IssueCertificate_Click(object sender, RoutedEventArgs e)
@@ -89,7 +78,7 @@ namespace ACMECertManager
                 var production = chkProduction.IsChecked == true;
                 var acmeUrl = production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
                 var validationMethod = rbDns.IsChecked == true ? ChallengeValidationMethod.Dns01 : ChallengeValidationMethod.Http01;
-                var savePemChainArtifacts = ((App)Application.Current).SavePemChainArtifacts;
+                var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
                 Log($"Using {(production ? "PRODUCTION ⚠️" : "STAGING (safe)")} server");
 
@@ -122,14 +111,17 @@ namespace ACMECertManager
                     };
                 }
 
-                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, dnsExecution, savePemChainArtifacts, Log);
+                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, dnsExecution, createPfxFile, Log);
 
                 _certificates.Add(cert);
                 CertificateStorage.Save(_certificates);
                 LoadCertificatesGrid();
 
                 Log($"✅ SUCCESS! Certificate for {cert.Domain} issued. Expires {cert.Expires:yyyy-MM-dd}");
-                MessageBox.Show($"Certificate saved to {cert.PfxPath}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", MessageBoxButton.OK, MessageBoxImage.Information);
+                var outputSummary = createPfxFile && !string.IsNullOrWhiteSpace(cert.PfxPath)
+                    ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
+                    : $"PEM files saved in:\n{cert.OutputDirectory}";
+                MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -233,10 +225,7 @@ namespace ACMECertManager
 
             try
             {
-                if (!string.IsNullOrWhiteSpace(cert.PfxPath) && File.Exists(cert.PfxPath))
-                {
-                    File.Delete(cert.PfxPath);
-                }
+                DeleteCertificateFiles(cert);
 
                 _certificates.Remove(cert);
                 CertificateStorage.Save(_certificates);
@@ -247,6 +236,29 @@ namespace ACMECertManager
             {
                 Log($"❌ Delete failed: {ex.Message}");
                 MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private static void DeleteCertificateFiles(CertificateModel cert)
+        {
+            if (!string.IsNullOrWhiteSpace(cert.OutputDirectory) && Directory.Exists(cert.OutputDirectory))
+            {
+                Directory.Delete(cert.OutputDirectory, recursive: true);
+                return;
+            }
+
+            TryDeleteFile(cert.PfxPath);
+            TryDeleteFile(cert.CertificatePemPath);
+            TryDeleteFile(cert.ChainPemPath);
+            TryDeleteFile(cert.FullChainPemPath);
+            TryDeleteFile(cert.PrivateKeyPemPath);
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
 
@@ -275,14 +287,14 @@ namespace ACMECertManager
             _availablePlugins = discovery.Plugins
                 .OrderBy(p => p.Metadata.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            
+
             // Build plugin fields dictionary for secrets window
             _pluginFields.Clear();
             foreach (var plugin in _availablePlugins)
             {
                 _pluginFields[plugin.Metadata.Id] = plugin.Instance.GetCredentialFields();
             }
-            
+
             cmbDnsPlugin.ItemsSource = _availablePlugins;
 
             if (cmbDnsPlugin.Items.Count > 0)
@@ -322,10 +334,10 @@ namespace ACMECertManager
             }
 
             txtPluginDescription.Text = selected.Metadata.Description;
-            
+
             // Get all stored credentials for this plugin
             var allCredentials = DnsSecretStorage.GetCredentialsForPlugin(selected.Metadata.Id);
-            
+
             // If there are saved credentials, show a selector
             if (allCredentials.Count > 0)
             {
@@ -345,7 +357,7 @@ namespace ACMECertManager
                 };
 
                 credentialCombo.Items.Add(new ComboBoxItem { Content = "(use new/custom credentials)" });
-                
+
                 foreach (var cred in allCredentials)
                 {
                     var displayName = string.IsNullOrEmpty(cred.Domain) ? "(default)" : cred.Domain;
@@ -497,20 +509,6 @@ namespace ACMECertManager
             secretsWindow.ShowDialog();
         }
 
-        private void SavePemChainArtifacts_Changed(object sender, RoutedEventArgs e)
-        {
-            if (chkSavePemChainArtifacts is null)
-            {
-                return;
-            }
-
-            var enabled = chkSavePemChainArtifacts.IsChecked == true;
-            ((App)Application.Current).SetSavePemChainArtifacts(enabled);
-            Log(enabled
-                ? "Advanced output enabled: will save PEM artifacts with each issued certificate."
-                : "Advanced output disabled: only PFX will be saved by default.");
-        }
-
         private void SetMaxLogFileSizeInput(int sizeMb)
         {
             if (txtMaxLogFileSizeMb is null)
@@ -532,14 +530,14 @@ namespace ACMECertManager
             {
                 var app = (App)Application.Current;
                 app.SetMaxLogFileSizeMb(sizeMb);
-                
+
                 // Update LogManager with new size limit
                 if (_logManager != null)
                 {
                     _logManager.Dispose();
                     _logManager = new LogManager(RuntimePaths.LogsDirectory, sizeMb);
                 }
-                
+
                 Log($"📊 Log file size limit changed to {sizeMb} MB");
             }
         }
@@ -556,7 +554,7 @@ namespace ACMECertManager
                     return;
 
                 var sb = new System.Text.StringBuilder();
-                
+
                 // Load the most recent log file (main log)
                 if (File.Exists(logFiles[0]))
                 {

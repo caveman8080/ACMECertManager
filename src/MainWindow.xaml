@@ -19,11 +19,29 @@
                                   AutoGenerateColumns="False"
                                   Margin="10"
                                   IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow"
+                                  RowHeaderWidth="36"
                                   ColumnWidth="SizeToHeader"
                                   MinColumnWidth="120"
                                   CanUserResizeColumns="True"
                                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                   ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <DataGrid.RowHeaderStyle>
+                                <Style TargetType="{x:Type DataGridRowHeader}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <Setter Property="ContentTemplate">
+                                        <Setter.Value>
+                                            <DataTemplate>
+                                                <RadioButton Focusable="False"
+                                                             IsHitTestVisible="False"
+                                                             IsChecked="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected, Mode=OneWay}"/>
+                                            </DataTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.RowHeaderStyle>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Domain" Binding="{Binding Domain}" Width="2*" MinWidth="220"/>
                                 <DataGridTextColumn Header="Expires" Binding="{Binding Expires, StringFormat={}{0:yyyy-MM-dd}}" Width="SizeToHeader" MinWidth="130"/>
@@ -34,9 +52,9 @@
                         </DataGrid>
 
                         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
-                            <Button Content="🔄 Renew Selected" Click="Renew_Click" Width="160" Height="40" Margin="10"/>
-                            <Button Content="⛔ Revoke Selected (CA)" Click="Revoke_Click" Width="200" Height="40" Margin="10" Background="{DynamicResource WarningBrush}"/>
-                            <Button Content="🗑 Delete Selected (Local)" Click="Delete_Click" Width="200" Height="40" Margin="10"/>
+                            <Button Content="🔄 Renew" Click="Renew_Click" Width="160" Height="40" Margin="10"/>
+                            <Button Content="⛔ Revoke (CA)" Click="Revoke_Click" Width="200" Height="40" Margin="10" Background="{DynamicResource WarningBrush}"/>
+                            <Button Content="🗑 Delete (Local)" Click="Delete_Click" Width="200" Height="40" Margin="10"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -78,6 +96,11 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <CheckBox x:Name="chkCreatePfxFile"
+                                      Content="Also create a PFX file (certificate.pfx)"
+                                      Margin="0,10,0,0"
+                                      FontSize="13"/>
+
                             <CheckBox x:Name="chkProduction" Content="🚨 SWITCH TO PRODUCTION MODE (real certificates)" Margin="0,20" FontSize="14" Foreground="{DynamicResource WarningBrush}" FontWeight="Bold"/>
 
                                 <Button Content="🚀 Issue Certificate Now" Click="IssueCertificate_Click" Height="55" Width="320" FontSize="18" Margin="0,30"/>
@@ -95,18 +118,10 @@
                         <TextBlock Text="Appearance" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
                         <TextBlock Text="Theme follows Windows setting automatically (Fluent System mode)." FontSize="14" Margin="0,0,0,20" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
 
-                        <TextBlock Text="DNS plugin secrets are currently stored in plaintext (unsecured)." FontSize="13" Margin="0,8" Foreground="{DynamicResource WarningBrush}"/>
-                        <Button Content="View Stored DNS Secrets" Click="ViewDnsSecrets_Click" Height="40" Width="260" FontSize="14" Margin="0,8"/>
-                        <TextBlock Text="Advanced Certificate Output" FontSize="18" FontWeight="Bold" Margin="0,20,0,10"/>
-                        <CheckBox x:Name="chkSavePemChainArtifacts"
-                                  Content="Also save PEM artifacts (fullchain, chain, cert, key) alongside PFX"
-                                  Margin="0,0,0,10"
-                                  FontSize="13"
-                                  Checked="SavePemChainArtifacts_Changed"
-                                  Unchecked="SavePemChainArtifacts_Changed"/>
-                                <TextBlock Text="All files stay INSIDE this app folder." FontSize="13" Margin="0,10" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                        <TextBlock Text="Stored Secrets" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <Button Content="View" Click="ViewDnsSecrets_Click" Height="40" Width="260" FontSize="14" Margin="0,0,0,20"/>
 
-                        <TextBlock Text="Logging" FontSize="18" FontWeight="Bold" Margin="0,20,0,10"/>
+                        <TextBlock Text="Logging" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,20" VerticalAlignment="Center">
                             <TextBlock Text="Max Log File Size (MB)" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
                             <TextBox x:Name="txtMaxLogFileSizeMb" Width="80" Height="32" FontSize="14" Padding="8,4" VerticalContentAlignment="Center" TextChanged="MaxLogFileSize_Changed"/>

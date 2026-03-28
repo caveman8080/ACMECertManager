@@ -37,6 +37,11 @@ namespace ACMECertManager
             txtPluginDescription.Text = _plugin.Metadata.Description;
             txtDomain.Text = existingDomain;
 
+            var textBrush = GetBrushResource("TextBrush", SystemColors.WindowTextBrush);
+            var secondaryTextBrush = GetBrushResource("SecondaryTextBrush", SystemColors.GrayTextBrush);
+            var inputBackgroundBrush = GetBrushResource("InputBackgroundBrush", SystemColors.WindowBrush);
+            var borderBrush = GetBrushResource("BorderBrush", SystemColors.ActiveBorderBrush);
+
             foreach (var field in _fields)
             {
                 var label = new TextBlock
@@ -45,7 +50,7 @@ namespace ACMECertManager
                     Margin = new Thickness(0, 12, 0, 5),
                     FontSize = 13,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = (Brush)FindResource("TextBrush")
+                    Foreground = textBrush
                 };
                 pnlCredentialFields.Children.Add(label);
 
@@ -54,9 +59,9 @@ namespace ACMECertManager
                     Height = 34,
                     Padding = new Thickness(10, 7, 10, 7),
                     FontSize = 12,
-                    Background = (Brush)FindResource("InputBackgroundBrush"),
-                    Foreground = (Brush)FindResource("TextBrush"),
-                    BorderBrush = (Brush)FindResource("BorderBrush"),
+                    Background = inputBackgroundBrush,
+                    Foreground = textBrush,
+                    BorderBrush = borderBrush,
                     ToolTip = field.Placeholder
                 };
 
@@ -81,10 +86,15 @@ namespace ACMECertManager
                         Text = field.Placeholder,
                         Margin = new Thickness(0, 3, 0, 0),
                         FontSize = 11,
-                        Foreground = (Brush)FindResource("SecondaryTextBrush")
+                        Foreground = secondaryTextBrush
                     });
                 }
             }
+        }
+
+        private Brush GetBrushResource(string key, Brush fallback)
+        {
+            return TryFindResource(key) as Brush ?? fallback;
         }
 
         private void Save_Click(object sender, RoutedEventArgs e)

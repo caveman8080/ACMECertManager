@@ -31,6 +31,12 @@ namespace ACMECertManager
         private static readonly TimeSpan DefaultPollDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MaxWaitForAuthorization = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan MaxWaitForOrderReady = TimeSpan.FromMinutes(2);
+        private static readonly HashSet<string> ReservedWindowsFileNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
 
         public async Task<CertificateModel> IssueCertificateAsync(
             string[] domains,
@@ -38,7 +44,7 @@ namespace ACMECertManager
             string acmeUrl,
             ChallengeValidationMethod validationMethod,
             DnsPluginExecution? dnsPlugin,
-            bool savePemChainArtifacts,
+            bool createPfxFile,
             Action<string>? log = null)
         {
             RuntimePaths.EnsureRequiredDirectories();
@@ -177,31 +183,33 @@ namespace ACMECertManager
             var leafCertificatePem = cert.Certificate.ToPem();
             var privateKeyPem = privateKey.ToPem();
             var fullChainPem = TryGetFullChainPem(cert, leafCertificatePem, log);
+            var certificateOutputDirectory = GetCertificateOutputDirectory(domains[0]);
+            System.IO.Directory.CreateDirectory(certificateOutputDirectory);
 
-            log?.Invoke("[CERT] Building PFX certificate file...");
-            byte[] pfxBytes;
-            try
-            {
-                pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
-                log?.Invoke("[CERT] PFX file built successfully");
-            }
-            catch (Exception ex) when (IsIssuerResolutionFailure(ex))
-            {
-                log?.Invoke("[CERT] ⚠️ Certificate chain issuer resolution failed while building PFX. Falling back to leaf-only PFX export.");
-                pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
-                log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
-            }
+            log?.Invoke($"[CERT] Saving certificate files to: {certificateOutputDirectory}");
+            var pemPaths = SavePemArtifacts(certificateOutputDirectory, leafCertificatePem, fullChainPem, privateKeyPem, log);
 
-            var pfxPath = Path.Combine(RuntimePaths.CertsDirectory, $"{domains[0]}.pfx");
-            log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
-            File.WriteAllBytes(pfxPath, pfxBytes);
-            log?.Invoke("[CERT] PFX file saved successfully");
-
-            if (savePemChainArtifacts)
+            var pfxPath = string.Empty;
+            if (createPfxFile)
             {
-                log?.Invoke("[CERT] Saving additional PEM artifacts (fullchain, chain, cert, key)...");
-                SavePemArtifacts(domains[0], leafCertificatePem, fullChainPem, privateKeyPem, log);
-                log?.Invoke("[CERT] PEM artifacts saved");
+                log?.Invoke("[CERT] Building PFX certificate file...");
+                byte[] pfxBytes;
+                try
+                {
+                    pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
+                    log?.Invoke("[CERT] PFX file built successfully");
+                }
+                catch (Exception ex) when (IsIssuerResolutionFailure(ex))
+                {
+                    log?.Invoke("[CERT] ⚠️ Certificate chain issuer resolution failed while building PFX. Falling back to leaf-only PFX export.");
+                    pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
+                    log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
+                }
+
+                pfxPath = Path.Combine(certificateOutputDirectory, "certificate.pfx");
+                log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
+                File.WriteAllBytes(pfxPath, pfxBytes);
+                log?.Invoke("[CERT] PFX file saved successfully");
             }
 
             log?.Invoke("[ACME] ✅ Certificate issuance completed successfully");
@@ -211,6 +219,11 @@ namespace ACMECertManager
                 Expires = DateTime.UtcNow.AddDays(90),
                 Status = "Valid",
                 PfxPath = pfxPath,
+                OutputDirectory = certificateOutputDirectory,
+                CertificatePemPath = pemPaths.CertPemPath,
+                ChainPemPath = pemPaths.ChainPemPath,
+                FullChainPemPath = pemPaths.FullChainPemPath,
+                PrivateKeyPemPath = pemPaths.KeyPemPath,
                 AcmeDirectoryUrl = acmeUrl,
                 ValidationMethod = validationMethod == ChallengeValidationMethod.Http01 ? "HTTP-01" : "DNS-01"
             };
@@ -218,11 +231,6 @@ namespace ACMECertManager
 
         public async Task RevokeCertificateAsync(CertificateModel certificate)
         {
-            if (string.IsNullOrWhiteSpace(certificate.PfxPath) || !File.Exists(certificate.PfxPath))
-            {
-                throw new FileNotFoundException("Cannot revoke because certificate file is missing.", certificate.PfxPath);
-            }
-
             if (!File.Exists(RuntimePaths.AccountFile))
             {
                 throw new InvalidOperationException("ACME account key not found in storage/acme-account.json.");
@@ -235,13 +243,30 @@ namespace ACMECertManager
             var accountKey = KeyFactory.FromPem(File.ReadAllText(RuntimePaths.AccountFile));
             var acme = new AcmeContext(new Uri(acmeUrl), accountKey);
 
-            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certificate.PfxPath,
-                (string?)null,
-                X509KeyStorageFlags.EphemeralKeySet);
-            var rawCertificate = cert.Export(X509ContentType.Cert);
+            var rawCertificate = LoadCertificateForRevocation(certificate);
 
             await acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, null!);
+        }
+
+        private static byte[] LoadCertificateForRevocation(CertificateModel certificate)
+        {
+            if (!string.IsNullOrWhiteSpace(certificate.PfxPath) && File.Exists(certificate.PfxPath))
+            {
+                using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                    certificate.PfxPath,
+                    (string?)null,
+                    X509KeyStorageFlags.EphemeralKeySet);
+                return cert.Export(X509ContentType.Cert);
+            }
+
+            if (!string.IsNullOrWhiteSpace(certificate.CertificatePemPath) && File.Exists(certificate.CertificatePemPath))
+            {
+                using var cert = X509Certificate2.CreateFromPemFile(certificate.CertificatePemPath);
+                return cert.Export(X509ContentType.Cert);
+            }
+
+            throw new FileNotFoundException(
+                "Cannot revoke because certificate file is missing. Expected either certificate.pfx or cert.pem in the certificate output folder.");
         }
 
         private static string ComputeDnsTxtValue(string keyAuthorization)
@@ -337,20 +362,18 @@ namespace ACMECertManager
             }
         }
 
-        private static void SavePemArtifacts(string baseName, string leafCertificatePem, string fullChainPem, string privateKeyPem, Action<string>? log)
+        private static PemArtifactPaths SavePemArtifacts(string outputDirectory, string leafCertificatePem, string fullChainPem, string privateKeyPem, Action<string>? log)
         {
-            var sanitizedBaseName = baseName.Replace('*', '_');
-
             var certificates = SplitCertificatesPem(fullChainPem);
             if (certificates.Count == 0)
             {
                 certificates.Add(leafCertificatePem);
             }
 
-            var certPemPath = Path.Combine(RuntimePaths.CertsDirectory, $"{sanitizedBaseName}.cert.pem");
-            var chainPemPath = Path.Combine(RuntimePaths.CertsDirectory, $"{sanitizedBaseName}.chain.pem");
-            var fullchainPemPath = Path.Combine(RuntimePaths.CertsDirectory, $"{sanitizedBaseName}.fullchain.pem");
-            var keyPemPath = Path.Combine(RuntimePaths.CertsDirectory, $"{sanitizedBaseName}.key.pem");
+            var certPemPath = Path.Combine(outputDirectory, "cert.pem");
+            var chainPemPath = Path.Combine(outputDirectory, "chain.pem");
+            var fullchainPemPath = Path.Combine(outputDirectory, "fullchain.pem");
+            var keyPemPath = Path.Combine(outputDirectory, "privkey.pem");
 
             File.WriteAllText(certPemPath, leafCertificatePem.Trim() + Environment.NewLine);
             File.WriteAllText(fullchainPemPath, string.Join(Environment.NewLine + Environment.NewLine, certificates) + Environment.NewLine);
@@ -367,7 +390,42 @@ namespace ACMECertManager
 
             File.WriteAllText(keyPemPath, privateKeyPem.Trim() + Environment.NewLine);
             log?.Invoke($"Saved PEM artifacts: {Path.GetFileName(certPemPath)}, {Path.GetFileName(fullchainPemPath)}, {Path.GetFileName(chainPemPath)}, {Path.GetFileName(keyPemPath)}");
+            return new PemArtifactPaths(certPemPath, chainPemPath, fullchainPemPath, keyPemPath);
         }
+
+        private static string GetCertificateOutputDirectory(string domain)
+        {
+            var normalizedFolder = domain.Trim();
+            if (normalizedFolder.StartsWith("*.", StringComparison.Ordinal))
+            {
+                normalizedFolder = $"wildcard.{normalizedFolder[2..]}";
+            }
+
+            normalizedFolder = normalizedFolder.Replace('*', '_');
+            var invalidChars = Path.GetInvalidFileNameChars();
+            var sanitizedChars = normalizedFolder
+                .Select(ch => invalidChars.Contains(ch) ? '_' : ch)
+                .ToArray();
+
+            var sanitized = new string(sanitizedChars).Trim().TrimEnd('.');
+            if (string.IsNullOrWhiteSpace(sanitized))
+            {
+                sanitized = "certificate";
+            }
+
+            if (ReservedWindowsFileNames.Contains(sanitized))
+            {
+                sanitized += "_cert";
+            }
+
+            return Path.Combine(RuntimePaths.CertsDirectory, sanitized);
+        }
+
+        private readonly record struct PemArtifactPaths(
+            string CertPemPath,
+            string ChainPemPath,
+            string FullChainPemPath,
+            string KeyPemPath);
 
         private static List<string> SplitCertificatesPem(string pemChain)
         {

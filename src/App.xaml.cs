@@ -7,7 +7,6 @@ namespace ACMECertManager
 {
     public partial class App : Application
     {
-        public bool SavePemChainArtifacts { get; private set; }
         public int MaxLogFileSizeMb { get; private set; } = 10;
 
         protected override void OnStartup(StartupEventArgs e)
@@ -16,15 +15,8 @@ namespace ACMECertManager
             RuntimePaths.MigrateLegacyFiles();
 
             var settings = LoadPersistedSettings();
-            SavePemChainArtifacts = settings.SavePemChainArtifacts;
             MaxLogFileSizeMb = settings.MaxLogFileSizeMb;
             base.OnStartup(e);
-        }
-
-        public void SetSavePemChainArtifacts(bool enabled)
-        {
-            SavePemChainArtifacts = enabled;
-            SaveSettings();
         }
 
         public void SetMaxLogFileSizeMb(int sizeMb)
@@ -62,7 +54,6 @@ namespace ACMECertManager
             {
                 var settings = new ThemeSettings
                 {
-                    SavePemChainArtifacts = SavePemChainArtifacts,
                     MaxLogFileSizeMb = MaxLogFileSizeMb
                 };
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -77,7 +68,6 @@ namespace ACMECertManager
         private sealed class ThemeSettings
         {
             public string? Theme { get; set; }
-            public bool SavePemChainArtifacts { get; set; }
             public int MaxLogFileSizeMb { get; set; } = 10;
         }
     }

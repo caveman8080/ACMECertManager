@@ -16,6 +16,11 @@ public sealed class StorageAndModelTests
         Assert.Equal(string.Empty, model.Domain);
         Assert.Equal(string.Empty, model.Status);
         Assert.Equal(string.Empty, model.PfxPath);
+        Assert.Equal(string.Empty, model.OutputDirectory);
+        Assert.Equal(string.Empty, model.CertificatePemPath);
+        Assert.Equal(string.Empty, model.ChainPemPath);
+        Assert.Equal(string.Empty, model.FullChainPemPath);
+        Assert.Equal(string.Empty, model.PrivateKeyPemPath);
         Assert.Equal(string.Empty, model.AcmeDirectoryUrl);
         Assert.Equal("HTTP-01", model.ValidationMethod);
     }
@@ -74,7 +79,12 @@ public sealed class StorageAndModelTests
                     Domain = "example.com",
                     Expires = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     Status = "Valid",
-                    PfxPath = "certs/example.com.pfx",
+                    PfxPath = "certs/example.com/certificate.pfx",
+                    OutputDirectory = "certs/example.com",
+                    CertificatePemPath = "certs/example.com/cert.pem",
+                    ChainPemPath = "certs/example.com/chain.pem",
+                    FullChainPemPath = "certs/example.com/fullchain.pem",
+                    PrivateKeyPemPath = "certs/example.com/privkey.pem",
                     AcmeDirectoryUrl = "https://acme-staging-v02.api.letsencrypt.org/directory",
                     ValidationMethod = "HTTP-01"
                 }
@@ -86,7 +96,12 @@ public sealed class StorageAndModelTests
             var certificate = Assert.Single(loaded);
             Assert.Equal("example.com", certificate.Domain);
             Assert.Equal("Valid", certificate.Status);
-            Assert.Equal("certs/example.com.pfx", certificate.PfxPath);
+            Assert.Equal("certs/example.com/certificate.pfx", certificate.PfxPath);
+            Assert.Equal("certs/example.com", certificate.OutputDirectory);
+            Assert.Equal("certs/example.com/cert.pem", certificate.CertificatePemPath);
+            Assert.Equal("certs/example.com/chain.pem", certificate.ChainPemPath);
+            Assert.Equal("certs/example.com/fullchain.pem", certificate.FullChainPemPath);
+            Assert.Equal("certs/example.com/privkey.pem", certificate.PrivateKeyPemPath);
             Assert.Equal("https://acme-staging-v02.api.letsencrypt.org/directory", certificate.AcmeDirectoryUrl);
             Assert.Equal("HTTP-01", certificate.ValidationMethod);
             Assert.Equal(new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc), certificate.Expires);
