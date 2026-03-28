@@ -6,13 +6,14 @@
 - In UI event handlers, keep user-facing feedback consistent: write to the log panel and surface blocking failures with MessageBox.
 
 ## Architecture
-- This repository is a single Windows WPF desktop app targeting net8.0-windows.
+- This repository is a single Windows WPF desktop app targeting net9.0-windows.
 - Keep ACME protocol and challenge orchestration in src/AcmeService.cs.
 - Keep UI flow and user actions in src/MainWindow.xaml and src/MainWindow.xaml.cs.
 - Keep local persistence concerns in src/CertificateStorage.cs and theme persistence in src/App.xaml.cs.
 - Keep certificate data model changes in src/CertificateModel.cs and ensure JSON compatibility with existing files.
 
 ## Build And Test
+- Minimum runtime/SDK for local and CI builds: .NET 9 (net9.0-windows / SDK 9.0.x).
 - Restore dependencies: dotnet restore
 - Build from repository root: dotnet build src/ACMECertManager.csproj -c Debug
 - CI build parity check: dotnet build --no-restore

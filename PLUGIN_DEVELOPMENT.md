@@ -129,7 +129,7 @@ Throw descriptive exceptions from PresentChallengeAsync and CleanupChallengeAsyn
 The host will surface errors in the UI log and message dialogs.
 
 ## Packaging
-1. Build your plugin for net8.0 or compatible runtime.
+1. Build your plugin for net9.0 or compatible runtime.
 2. Copy plugin DLL and its dependency DLLs into plugins/ beside acm.exe.
 3. Launch app and verify plugin appears in DNS plugin dropdown.
 

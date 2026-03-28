@@ -235,7 +235,10 @@ namespace ACMECertManager
             var accountKey = KeyFactory.FromPem(File.ReadAllText(RuntimePaths.AccountFile));
             var acme = new AcmeContext(new Uri(acmeUrl), accountKey);
 
-            using var cert = new X509Certificate2(certificate.PfxPath);
+            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                certificate.PfxPath,
+                (string?)null,
+                X509KeyStorageFlags.EphemeralKeySet);
             var rawCertificate = cert.Export(X509ContentType.Cert);
 
             await acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, null!);

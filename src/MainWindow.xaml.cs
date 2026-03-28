@@ -34,7 +34,6 @@ namespace ACMECertManager
             _logManager = new LogManager(RuntimePaths.LogsDirectory, app.MaxLogFileSizeMb);
             
             UpdateAdminRelaunchVisibility();
-            SetThemeSelection(app.CurrentTheme);
             SetAdvancedSettingsSelection(app.SavePemChainArtifacts);
             SetMaxLogFileSizeInput(app.MaxLogFileSizeMb);
             
@@ -65,34 +64,6 @@ namespace ACMECertManager
             }
             
             UpdateLogStatistics();
-        }
-
-        private void ThemeSelection_Changed(object sender, SelectionChangedEventArgs e)
-        {
-            if (cmbTheme.SelectedItem is not ComboBoxItem selectedTheme)
-                return;
-
-            var app = (App)Application.Current;
-            var themeName = selectedTheme.Content?.ToString();
-
-            if (string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase))
-            {
-                app.ApplyTheme(AppTheme.Dark);
-                Log("🌙 Dark mode enabled");
-            }
-            else
-            {
-                app.ApplyTheme(AppTheme.Light);
-                Log("☀️ Light mode enabled");
-            }
-        }
-
-        private void SetThemeSelection(AppTheme theme)
-        {
-            if (cmbTheme.Items.Count < 2)
-                return;
-
-            cmbTheme.SelectedIndex = theme == AppTheme.Dark ? 1 : 0;
         }
 
         private void SetAdvancedSettingsSelection(bool savePemChainArtifacts)
@@ -456,7 +427,7 @@ namespace ACMECertManager
                         Text = field.Placeholder,
                         Margin = new Thickness(0, 2, 0, 6),
                         FontSize = 11,
-                        Foreground = (Brush)FindResource("SecondaryTextBrush")
+                        Foreground = SystemColors.GrayTextBrush
                     });
                 }
             }

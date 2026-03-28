@@ -1,5 +1,7 @@
 # ACME Certificate Manager
 
+[![CI (.NET 9)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
+
 **The friendliest Windows app for free Let's Encrypt certificates**  
 Built for Caveman_8080 – no command line, no extra installs, one single .exe!
 
@@ -9,6 +11,11 @@ Built for Caveman_8080 – no command line, no extra installs, one single .exe!
 3. Go to “Issue New Certificate” tab and click the big button
 
 **Always starts in STAGING mode** – safe for testing. Flip the toggle only when ready for real certificates.
+
+## Requirements
+- Minimum runtime for development and source builds: .NET 9 (net9.0-windows).
+- Minimum SDK for local build/test/publish commands: .NET SDK 9.0.
+- Windows 10/11.
 
 ## Features
 - Dashboard with big friendly buttons
@@ -64,7 +71,7 @@ Advanced option:
 - Go to **Actions** tab → click latest workflow → download your architecture artifact (`acm-win-x86`, `acm-win-x64`, `acm-win-arm64`)
 
 **Way 2 – Build yourself**
-1. Install free **Visual Studio 2022 Community**
+1. Install free **Visual Studio 2022 Community** with .NET 9 support (or install .NET SDK 9.0).
 2. Open `ACMECertManager.sln`
 3. Press **F5** to run immediately
 4. To create single .exe: right-click project → Publish → self-contained win-x64 → Publish

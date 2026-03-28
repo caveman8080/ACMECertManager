@@ -6,6 +6,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ACMECertManager", "src\ACME
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HurricaneElectricDnsPlugin", "samples\HurricaneElectricDnsPlugin\HurricaneElectricDnsPlugin.csproj", "{6C62B064-0B65-4264-BCF4-2B8F2A2D8B87}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ACMECertManager.Tests", "tests\ACMECertManager.Tests\ACMECertManager.Tests.csproj", "{A97FAF97-8E44-446A-9197-D04D33E18068}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -50,11 +54,32 @@ Global
 		{6C62B064-0B65-4264-BCF4-2B8F2A2D8B87}.Release|x64.Build.0 = Release|Any CPU
 		{6C62B064-0B65-4264-BCF4-2B8F2A2D8B87}.Release|x86.ActiveCfg = Release|Any CPU
 		{6C62B064-0B65-4264-BCF4-2B8F2A2D8B87}.Release|x86.Build.0 = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|x64.Build.0 = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Debug|x86.Build.0 = Debug|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|ARM64.Build.0 = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|x64.ActiveCfg = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|x64.Build.0 = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|x86.ActiveCfg = Release|Any CPU
+		{A97FAF97-8E44-446A-9197-D04D33E18068}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A97FAF97-8E44-446A-9197-D04D33E18068} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {11111111-2222-3333-4444-555555555555}
 	EndGlobalSection
 EndGlobal
+
+
