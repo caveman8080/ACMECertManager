@@ -3,7 +3,6 @@
 [![CI (.NET 9)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
-Built for Caveman_8080 – no command line, no extra installs, one single .exe!
 
 ## ✅ Quick Start (30 seconds)
 1. Download the latest architecture artifact from **Actions/Releases** (acm-win-x86, acm-win-x64, or acm-win-arm64)
