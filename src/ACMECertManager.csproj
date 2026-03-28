@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <AssemblyName>acm</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
@@ -8,7 +9,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <Platforms>x86;x64;ARM64</Platforms>
     <PublishTrimmed>false</PublishTrimmed>
     <Version>1.0.0</Version>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -20,4 +22,8 @@
     <PackageReference Include="TaskScheduler" Version="2.12.2" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
+
+  <Target Name="EnsureRuntimeFoldersOnPublish" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)plugins;$(PublishDir)logs;$(PublishDir)certs;$(PublishDir)storage" />
+  </Target>
 </Project>

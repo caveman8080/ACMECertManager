@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x86, win-x64, win-arm64]
     steps:
     - uses: actions/checkout@v4
 
@@ -25,11 +29,23 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
 
-    - name: Publish single .exe (fixed syntax)
-      run: dotnet publish src/ACMECertManager.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish
+    - name: Publish single .exe
+      run: dotnet publish src/ACMECertManager.csproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish
+
+    - name: Prepare release folder layout
+      shell: pwsh
+      run: |
+        $packageRoot = "package/ACMECertManager"
+        New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+        Copy-Item -Path publish/* -Destination $packageRoot -Recurse -Force
+        New-Item -ItemType Directory -Force -Path "$packageRoot/plugins" | Out-Null
+        New-Item -ItemType Directory -Force -Path "$packageRoot/logs" | Out-Null
+        New-Item -ItemType Directory -Force -Path "$packageRoot/certs" | Out-Null
+        New-Item -ItemType Directory -Force -Path "$packageRoot/storage" | Out-Null
+        if (Test-Path "$packageRoot/acm.pdb") { Remove-Item "$packageRoot/acm.pdb" -Force }
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ACMECertManager-exe
-        path: publish/ACMECertManager.exe
+        name: acm-${{ matrix.rid }}
+        path: package/
