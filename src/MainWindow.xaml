@@ -95,10 +95,6 @@
                         <TextBlock Text="Appearance" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
                         <TextBlock Text="Theme follows Windows setting automatically (Fluent System mode)." FontSize="14" Margin="0,0,0,20" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
 
-                        <TextBlock Text="Auto-Renewal" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Creates a Windows Task Scheduler task to check/renew every 60 days." FontSize="14" Margin="0,0,0,20"/>
-                        <Button Content="Enable Auto-Renew Now" Click="EnableAutoRenew_Click" Height="50" Width="300" FontSize="16"/>
-                        <TextBlock Text="💡 Tip: Run the app once after enabling." FontSize="13" Margin="0,30" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                         <TextBlock Text="DNS plugin secrets are currently stored in plaintext (unsecured)." FontSize="13" Margin="0,8" Foreground="{DynamicResource WarningBrush}"/>
                         <Button Content="View Stored DNS Secrets" Click="ViewDnsSecrets_Click" Height="40" Width="260" FontSize="14" Margin="0,8"/>
                         <TextBlock Text="Advanced Certificate Output" FontSize="18" FontWeight="Bold" Margin="0,20,0,10"/>

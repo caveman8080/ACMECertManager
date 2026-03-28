@@ -10,7 +10,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32.TaskScheduler;
 
 namespace ACMECertManager
 {
@@ -248,26 +247,6 @@ namespace ACMECertManager
             {
                 Log($"❌ Delete failed: {ex.Message}");
                 MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void EnableAutoRenew_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                using var ts = new TaskService();
-                var definition = ts.NewTask();
-                definition.Triggers.Add(new DailyTrigger { DaysInterval = 60 });
-                definition.Actions.Add(new ExecAction(System.AppContext.BaseDirectory, "--renew", null));
-                definition.Settings.Enabled = true;
-                ts.RootFolder.RegisterTaskDefinition("ACMECertManager_Renew", definition,
-                    TaskCreation.CreateOrUpdate, null, null, TaskLogonType.InteractiveToken);
-                Log("✅ Auto-renew task created in Windows Task Scheduler!");
-                MessageBox.Show("Auto-renew scheduled every 60 days!", "Success");
-            }
-            catch (Exception ex)
-            {
-                Log($"Task Scheduler error: {ex.Message}");
             }
         }
 

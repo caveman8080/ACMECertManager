@@ -21,7 +21,6 @@ Built for Caveman_8080 – no command line, no extra installs, one single .exe!
 - Dashboard with big friendly buttons
 - Issue wizard (domains, wildcards, HTTP-01 auto, DNS-01 plugin workflow)
 - Manage certificates (list, expiry, renew/revoke)
-- Auto-renew via Windows Task Scheduler
 - Logs tab with colored output
 - Runtime folders auto-created next to the executable (plugins/, logs/, certs/, storage/)
 - Self-contained single .exe (runs on any Windows 10/11)
