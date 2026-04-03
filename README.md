@@ -1,6 +1,6 @@
 # ACME Certificate Manager
 
-[![CI (.NET 9)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
+[![CI (.NET 10)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
 
@@ -12,8 +12,8 @@
 **Always starts in STAGING mode** – safe for testing. Flip the toggle only when ready for real certificates.
 
 ## Requirements
-- Minimum runtime for development and source builds: .NET 9 (net9.0-windows).
-- Minimum SDK for local build/test/publish commands: .NET SDK 9.0.
+- Minimum runtime for development and source builds: .NET 10 (net10.0-windows).
+- Minimum SDK for local build/test/publish commands: .NET SDK 10.0.
 - Windows 10/11.
 
 ## Features
@@ -39,6 +39,30 @@ Expected extracted structure:
 - ACMECertManager/logs/
 - ACMECertManager/certs/
 - ACMECertManager/storage/
+
+## Updating to a New Release
+Use an in-place upgrade so your certificates and settings stay intact.
+
+Simple update steps:
+1. Close ACMECertManager if it is running.
+2. Download the new release package for your architecture.
+3. Extract/copy the new files into your existing ACMECertManager folder.
+4. Allow overwrite of app binaries (including acm.exe).
+5. Make sure these folders are still present after update: plugins/, logs/, certs/, storage/.
+6. Launch acm.exe.
+
+What is preserved on upgrade (if you keep the same folder):
+- certs/ (issued certificate files)
+- storage/certificates.json (certificate list/metadata)
+- storage/acme-account.json (ACME account key)
+- storage/dns-secrets.json (saved DNS plugin credentials)
+- storage/ui-settings.json (UI settings)
+- logs/ (log history)
+- plugins/ (DNS plugin DLLs you added)
+
+What can be lost:
+- If you delete the old folder before copying the new release, you lose local data unless you backed up and restored certs/, storage/, logs/, and plugins/.
+- If certs/ is missing but storage/certificates.json exists, entries may remain but certificate files referenced by those entries may be missing.
 
 ## DNS-01 Plugin Workflow
 1. Put provider DLLs in plugins/.
@@ -69,7 +93,7 @@ Advanced option:
 - Go to **Actions** tab → click latest workflow → download your architecture artifact (`acm-win-x86`, `acm-win-x64`, `acm-win-arm64`)
 
 **Way 2 – Build yourself**
-1. Install free **Visual Studio 2022 Community** with .NET 9 support (or install .NET SDK 9.0).
+1. Install free **Visual Studio Code** with .NET 10 support (or install .NET SDK 10.0).
 2. Open `ACMECertManager.sln`
 3. Press **F5** to run immediately
 4. To create single .exe: right-click project → Publish → self-contained win-x64 → Publish

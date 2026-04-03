@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>acm</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,12 +15,16 @@
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <Version>1.0.0</Version>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Certes" Version="3.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
-    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="assets\app.ico" />
   </ItemGroup>
 
   <Target Name="EnsureRuntimeFoldersOnPublish" AfterTargets="Publish">

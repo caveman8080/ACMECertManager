@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Microsoft.Extensions.Logging;
 
 namespace ACMECertManager
@@ -22,11 +23,16 @@ namespace ACMECertManager
         private LogManager? _logManager;
         private List<LoadedDnsPlugin> _availablePlugins = new();
         private Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isSyncingNavSelection;
+        private readonly Stack<string> _navigationHistory = new();
+        private string _currentPageKey = "Manage";
 
         public MainWindow()
         {
             InitializeComponent();
             _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MainWindow>();
+
+            Loaded += (_, _) => InitializeNavigation();
 
             // Initialize LogManager with the max size from app settings
             var app = (App)Application.Current;
@@ -44,6 +50,16 @@ namespace ACMECertManager
             LoadPersistedLogs();
 
             Log("🚀 ACME Certificate Manager started! Default = staging mode (safe)");
+        }
+
+        private void InitializeNavigation()
+        {
+            if (NavPrimaryMenu.Items.Count == 0 && NavFooterMenu.Items.Count == 0)
+            {
+                return;
+            }
+
+            NavigateToPage("Manage", pushHistory: false);
         }
 
         private void Log(string message)
@@ -191,6 +207,169 @@ namespace ACMECertManager
             using var identity = WindowsIdentity.GetCurrent();
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+
+        private void NavPrimaryMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isSyncingNavSelection)
+            {
+                return;
+            }
+
+            if (NavPrimaryMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
+            {
+                return;
+            }
+
+            NavigateToPage(pageKey, pushHistory: true);
+        }
+
+        private void NavFooterMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isSyncingNavSelection)
+            {
+                return;
+            }
+
+            if (NavFooterMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
+            {
+                return;
+            }
+
+            NavigateToPage(pageKey, pushHistory: true);
+        }
+
+        private void NavigateToPage(string pageKey, bool pushHistory)
+        {
+            if (string.IsNullOrWhiteSpace(pageKey))
+            {
+                return;
+            }
+
+            if (pushHistory && !string.Equals(_currentPageKey, pageKey, StringComparison.Ordinal))
+            {
+                _navigationHistory.Push(_currentPageKey);
+            }
+
+            ShowPage(pageKey);
+            _currentPageKey = pageKey;
+            SelectMenuForPage(pageKey);
+            UpdateBackButtonState();
+        }
+
+        private void SelectMenuForPage(string pageKey)
+        {
+            _isSyncingNavSelection = true;
+            NavPrimaryMenu.SelectedItem = FindMenuItemByTag(NavPrimaryMenu, pageKey);
+            NavFooterMenu.SelectedItem = FindMenuItemByTag(NavFooterMenu, pageKey);
+            _isSyncingNavSelection = false;
+        }
+
+        private static ListBoxItem? FindMenuItemByTag(ListBox menu, string pageKey)
+        {
+            foreach (var item in menu.Items)
+            {
+                if (item is ListBoxItem listItem && string.Equals(listItem.Tag as string, pageKey, StringComparison.Ordinal))
+                {
+                    return listItem;
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateBackButtonState()
+        {
+            if (FindName("btnBack") is Button backButton)
+            {
+                backButton.IsEnabled = _navigationHistory.Count > 0;
+            }
+        }
+
+        private void Back_Click(object sender, RoutedEventArgs e)
+        {
+            if (_navigationHistory.Count == 0)
+            {
+                return;
+            }
+
+            var previousPage = _navigationHistory.Pop();
+            NavigateToPage(previousPage, pushHistory: false);
+        }
+
+        private void ShowPage(string pageKey)
+        {
+            if (ManagePage is null || IssuePage is null || SettingsPage is null || LogsPage is null)
+            {
+                return;
+            }
+
+            ManagePage.Visibility = Visibility.Collapsed;
+            IssuePage.Visibility = Visibility.Collapsed;
+            SettingsPage.Visibility = Visibility.Collapsed;
+            LogsPage.Visibility = Visibility.Collapsed;
+            FrameworkElement pageToShow;
+
+            switch (pageKey)
+            {
+                case "Issue":
+                    IssuePage.Visibility = Visibility.Visible;
+                    pageToShow = IssuePage;
+                    SetSectionHeader(
+                        "Issue New Certificate",
+                        "Create a new certificate with HTTP-01 or DNS-01 validation.");
+                    break;
+                case "Settings":
+                    SettingsPage.Visibility = Visibility.Visible;
+                    pageToShow = SettingsPage;
+                    SetSectionHeader(
+                        "Settings",
+                        "Manage DNS secrets and application logging preferences.");
+                    break;
+                case "Logs":
+                    LogsPage.Visibility = Visibility.Visible;
+                    pageToShow = LogsPage;
+                    SetSectionHeader(
+                        "Logs",
+                        "Inspect activity history, export logs, or clear log files.");
+                    break;
+                default:
+                    ManagePage.Visibility = Visibility.Visible;
+                    pageToShow = ManagePage;
+                    SetSectionHeader(
+                        "Manage Certificates",
+                        "Review, renew, revoke, or delete existing local certificates.");
+                    break;
+            }
+
+            AnimatePage(pageToShow);
+        }
+
+        private void SetSectionHeader(string title, string subtitle)
+        {
+            if (FindName("txtSectionTitle") is TextBlock titleBlock)
+            {
+                titleBlock.Text = title;
+            }
+
+            if (FindName("txtSectionSubtitle") is TextBlock subtitleBlock)
+            {
+                subtitleBlock.Text = subtitle;
+            }
+        }
+
+        private static void AnimatePage(UIElement page)
+        {
+            page.Opacity = 0;
+
+            var fadeIn = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = TimeSpan.FromMilliseconds(170)
+            };
+
+            page.BeginAnimation(OpacityProperty, fadeIn);
         }
 
         private void Renew_Click(object sender, RoutedEventArgs e)

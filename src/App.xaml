@@ -12,6 +12,9 @@
         <SolidColorBrush x:Key="SecondaryTextBrush" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}"/>
         <SolidColorBrush x:Key="BorderBrush" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}"/>
         <SolidColorBrush x:Key="SecondaryBrush" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}"/>
+        <SolidColorBrush x:Key="NavSelectedBrush" Color="#1A5FB4" Opacity="0.16"/>
+        <SolidColorBrush x:Key="NavHoverBrush" Color="#808080" Opacity="0.14"/>
+        <SolidColorBrush x:Key="NavSelectedBorderBrush" Color="#1A5FB4" Opacity="0.7"/>
         <SolidColorBrush x:Key="WarningBrush" Color="#C42B1C"/>
     </Application.Resources>
 </Application>

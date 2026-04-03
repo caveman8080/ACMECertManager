@@ -2,70 +2,248 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ACME Certificate Manager" Height="700" Width="1100"
+        Icon="assets/app.ico"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="15">
-        <TabControl x:Name="MainTabs" TabStripPlacement="Top" BorderThickness="0">
-            <!-- Manage Certificates -->
-            <TabItem Header="📋 Manage Certificates">
-                <Border>
-                    <Grid MinHeight="500" MinWidth="900">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
 
-                        <DataGrid x:Name="dgCertificates"
-                                  Grid.Row="0"
-                                  AutoGenerateColumns="False"
-                                  Margin="10"
-                                  IsReadOnly="True"
-                                  SelectionMode="Single"
-                                  SelectionUnit="FullRow"
-                                  RowHeaderWidth="36"
-                                  ColumnWidth="SizeToHeader"
-                                  MinColumnWidth="120"
-                                  CanUserResizeColumns="True"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
-                            <DataGrid.RowHeaderStyle>
-                                <Style TargetType="{x:Type DataGridRowHeader}">
-                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
-                                    <Setter Property="ContentTemplate">
-                                        <Setter.Value>
-                                            <DataTemplate>
-                                                <RadioButton Focusable="False"
-                                                             IsHitTestVisible="False"
-                                                             IsChecked="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected, Mode=OneWay}"/>
-                                            </DataTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </DataGrid.RowHeaderStyle>
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Domain" Binding="{Binding Domain}" Width="2*" MinWidth="220"/>
-                                <DataGridTextColumn Header="Expires" Binding="{Binding Expires, StringFormat={}{0:yyyy-MM-dd}}" Width="SizeToHeader" MinWidth="130"/>
-                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="SizeToHeader" MinWidth="120"/>
-                                <DataGridTextColumn Header="ACME Server" Binding="{Binding AcmeDirectoryUrl}" Width="*" MinWidth="260"/>
-                                <DataGridTextColumn Header="Validation" Binding="{Binding ValidationMethod}" Width="SizeToHeader" MinWidth="130"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
+        <Style TargetType="TextBox">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        </Style>
 
-                        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
-                            <Button Content="🔄 Renew" Click="Renew_Click" Width="160" Height="40" Margin="10"/>
-                            <Button Content="⛔ Revoke (CA)" Click="Revoke_Click" Width="200" Height="40" Margin="10" Background="{DynamicResource WarningBrush}"/>
-                            <Button Content="🗑 Delete (Local)" Click="Delete_Click" Width="200" Height="40" Margin="10"/>
-                        </StackPanel>
-                    </Grid>
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        </Style>
+
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        </Style>
+
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="RowBackground" Value="{DynamicResource SurfaceBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource WindowBackgroundBrush}"/>
+        </Style>
+
+        <Style x:Key="SideNavItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource NavHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource NavSelectedBrush}"/>
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource NavSelectedBorderBrush}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="0" Background="{DynamicResource WindowBackgroundBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="248"/>
+            <ColumnDefinition Width="1"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,1,0"
+                CornerRadius="0"
+                Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <ListBox x:Name="NavPrimaryMenu"
+                         Grid.Row="0"
+                         SelectionChanged="NavPrimaryMenu_SelectionChanged"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ItemContainerStyle="{StaticResource SideNavItemStyle}">
+                    <ListBoxItem Tag="Manage">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="&#xE8D1;" FontFamily="Segoe Fluent Icons" FontSize="15" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Manage Certificates" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="Issue">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="&#xEA86;" FontFamily="Segoe Fluent Icons" FontSize="15" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Issue New Certificate" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="Logs">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="&#xE9D2;" FontFamily="Segoe Fluent Icons" FontSize="15" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Logs" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                </ListBox>
+
+                <ListBox x:Name="NavFooterMenu"
+                         Grid.Row="1"
+                         Margin="0,8,0,0"
+                         SelectionChanged="NavFooterMenu_SelectionChanged"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ItemContainerStyle="{StaticResource SideNavItemStyle}">
+                    <ListBoxItem Tag="Settings">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="15" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Settings" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="2"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0"
+                CornerRadius="0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Padding="20,16,20,12" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <StackPanel>
+                        <TextBlock x:Name="txtSectionTitle" Text="Manage Certificates" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <TextBlock x:Name="txtSectionSubtitle" Text="Review, renew, revoke, or delete existing local certificates." Margin="0,4,0,0" FontSize="12.5" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </StackPanel>
                 </Border>
-            </TabItem>
 
-            <!-- Issue New Certificate -->
-            <TabItem Header="✨ Issue New Certificate">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <Border>
-                        <Grid Margin="30">
-                            <StackPanel>
+                <Grid Grid.Row="1">
+                <!-- Manage Certificates -->
+                <Grid x:Name="ManagePage" Margin="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <DataGrid x:Name="dgCertificates"
+                              Grid.Row="0"
+                              AutoGenerateColumns="False"
+                              Margin="10"
+                              IsReadOnly="True"
+                              SelectionMode="Single"
+                              SelectionUnit="FullRow"
+                              RowHeaderWidth="36"
+                              ColumnWidth="SizeToHeader"
+                              MinColumnWidth="120"
+                              CanUserResizeColumns="True"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <DataGrid.RowHeaderStyle>
+                            <Style TargetType="{x:Type DataGridRowHeader}">
+                                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                <Setter Property="ContentTemplate">
+                                    <Setter.Value>
+                                        <DataTemplate>
+                                            <RadioButton Focusable="False"
+                                                         IsHitTestVisible="False"
+                                                         IsChecked="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected, Mode=OneWay}"/>
+                                        </DataTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </DataGrid.RowHeaderStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Domain" Binding="{Binding Domain}" Width="2*" MinWidth="220"/>
+                            <DataGridTextColumn Header="Expires" Binding="{Binding Expires, StringFormat={}{0:yyyy-MM-dd}}" Width="SizeToHeader" MinWidth="130"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="SizeToHeader" MinWidth="120"/>
+                            <DataGridTextColumn Header="ACME Server" Binding="{Binding AcmeDirectoryUrl}" Width="*" MinWidth="260"/>
+                            <DataGridTextColumn Header="Validation" Binding="{Binding ValidationMethod}" Width="SizeToHeader" MinWidth="130"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
+                        <Button Content="🔄 Renew" Click="Renew_Click" Width="160" Height="40" Margin="10"/>
+                        <Button Content="⛔ Revoke (CA)" Click="Revoke_Click" Width="200" Height="40" Margin="10" Background="{DynamicResource WarningBrush}"/>
+                        <Button Content="🗑 Delete (Local)" Click="Delete_Click" Width="200" Height="40" Margin="10"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Issue New Certificate -->
+                <ScrollViewer x:Name="IssuePage" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                    <Grid Margin="30">
+                        <StackPanel>
                             <TextBlock Text="Domain(s) (example.com,www.example.com or *.example.com)" FontSize="15" Margin="0,10,0,5" FontWeight="SemiBold"/>
                             <TextBox x:Name="txtDomains" Height="40" Margin="0,0,0,15" FontSize="14" Padding="10,7" VerticalContentAlignment="Center"/>
 
@@ -103,18 +281,14 @@
 
                             <CheckBox x:Name="chkProduction" Content="🚨 SWITCH TO PRODUCTION MODE (real certificates)" Margin="0,20" FontSize="14" Foreground="{DynamicResource WarningBrush}" FontWeight="Bold"/>
 
-                                <Button Content="🚀 Issue Certificate Now" Click="IssueCertificate_Click" Height="55" Width="320" FontSize="18" Margin="0,30"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
+                            <Button Content="🚀 Issue Certificate Now" Click="IssueCertificate_Click" Height="55" Width="320" FontSize="18" Margin="0,30"/>
+                        </StackPanel>
+                    </Grid>
                 </ScrollViewer>
-            </TabItem>
 
-            <!-- Settings -->
-            <TabItem Header="⚙️ Settings">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <Border>
-                        <StackPanel Margin="30">
+                <!-- Settings -->
+                <ScrollViewer x:Name="SettingsPage" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                    <StackPanel Margin="30">
                         <TextBlock Text="Appearance" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
                         <TextBlock Text="Theme follows Windows setting automatically (Fluent System mode)." FontSize="14" Margin="0,0,0,20" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
 
@@ -127,30 +301,26 @@
                             <TextBox x:Name="txtMaxLogFileSizeMb" Width="80" Height="32" FontSize="14" Padding="8,4" VerticalContentAlignment="Center" TextChanged="MaxLogFileSize_Changed"/>
                             <TextBlock Text="(current usage shown in Logs tab)" FontSize="12" VerticalAlignment="Center" Margin="15,0,0,0" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                         </StackPanel>
-                        </StackPanel>
-                    </Border>
+                    </StackPanel>
                 </ScrollViewer>
-            </TabItem>
 
-            <!-- Logs -->
-            <TabItem Header="📜 Logs">
-                <Border>
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
+                <!-- Logs -->
+                <Grid x:Name="LogsPage" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Margin="10">
-                            <Button Content="📥 Export Logs" Click="ExportLogs_Click" Height="40" Width="140" FontSize="14" Margin="0,0,10,0"/>
-                            <Button Content="🗑 Clear Logs" Click="ClearLogs_Click" Height="40" Width="120" FontSize="14"/>
-                            <TextBlock x:Name="txtLogStats" VerticalAlignment="Center" Margin="20,0,0,0" FontSize="12" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
-                        </StackPanel>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Margin="10">
+                        <Button Content="📥 Export Logs" Click="ExportLogs_Click" Height="40" Width="140" FontSize="14" Margin="0,0,10,0"/>
+                        <Button Content="🗑 Clear Logs" Click="ClearLogs_Click" Height="40" Width="120" FontSize="14"/>
+                        <TextBlock x:Name="txtLogStats" VerticalAlignment="Center" Margin="20,0,0,0" FontSize="12" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                    </StackPanel>
 
-                        <TextBox x:Name="txtLogs" Grid.Row="1" IsReadOnly="True" VerticalScrollBarVisibility="Auto" Margin="10" FontFamily="Consolas" FontSize="13"/>
-                    </Grid>
-                </Border>
-            </TabItem>
-        </TabControl>
+                    <TextBox x:Name="txtLogs" Grid.Row="1" IsReadOnly="True" VerticalScrollBarVisibility="Auto" Margin="10" FontFamily="Consolas" FontSize="13"/>
+                </Grid>
+                </Grid>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
