@@ -7,7 +7,7 @@ This sample plugin implements ACMECertManager DNS-01 hooks for Hurricane Electri
 - Cleanup is a no-op because HE DDNS updates the same record target
 
 ## Build
-Minimum runtime/target: .NET 9 (`net9.0-windows`).
+Minimum runtime/target: .NET 10 (`net10.0-windows`).
 
 ```powershell
 dotnet build samples/HurricaneElectricDnsPlugin/HurricaneElectricDnsPlugin.csproj -c Release

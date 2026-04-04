@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Media;
+using Microsoft.Win32;
 
 namespace ACMECertManager
 {
@@ -16,7 +18,83 @@ namespace ACMECertManager
 
             var settings = LoadPersistedSettings();
             MaxLogFileSizeMb = settings.MaxLogFileSizeMb;
+            ApplySystemThemeBrushes();
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
             base.OnStartup(e);
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            base.OnExit(e);
+        }
+
+        private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category is UserPreferenceCategory.Color or UserPreferenceCategory.General or UserPreferenceCategory.VisualStyle)
+            {
+                Dispatcher.Invoke(ApplySystemThemeBrushes);
+            }
+        }
+
+        private void ApplySystemThemeBrushes()
+        {
+            var darkMode = IsSystemDarkModeEnabled();
+
+            if (darkMode)
+            {
+                SetBrush("WindowBackgroundBrush", 0x18, 0x18, 0x18);
+                SetBrush("SurfaceBrush", 0x20, 0x20, 0x20);
+                SetBrush("InputBackgroundBrush", 0x2A, 0x2A, 0x2A);
+                SetBrush("PrimaryTextBrush", 0xF7, 0xF7, 0xF7);
+                SetBrush("TextBrush", 0xF7, 0xF7, 0xF7);
+                SetBrush("SecondaryTextBrush", 0xC9, 0xC9, 0xC9);
+                SetBrush("BorderBrush", 0x4A, 0x4A, 0x4A);
+                SetBrush("SecondaryBrush", 0x30, 0x30, 0x30);
+                SetBrush("NavSelectedBrush", 0x36, 0x8E, 0xF0, 0.28);
+                SetBrush("NavHoverBrush", 0xFF, 0xFF, 0xFF, 0.10);
+                SetBrush("NavSelectedBorderBrush", 0x5A, 0xA6, 0xF6, 0.92);
+            }
+            else
+            {
+                SetBrush("WindowBackgroundBrush", 0xF6, 0xF6, 0xF6);
+                SetBrush("SurfaceBrush", 0xFF, 0xFF, 0xFF);
+                SetBrush("InputBackgroundBrush", 0xFF, 0xFF, 0xFF);
+                SetBrush("PrimaryTextBrush", 0x20, 0x20, 0x20);
+                SetBrush("TextBrush", 0x20, 0x20, 0x20);
+                SetBrush("SecondaryTextBrush", 0x62, 0x62, 0x62);
+                SetBrush("BorderBrush", 0xCC, 0xCC, 0xCC);
+                SetBrush("SecondaryBrush", 0xF2, 0xF2, 0xF2);
+                SetBrush("NavSelectedBrush", 0x1A, 0x73, 0xE8, 0.14);
+                SetBrush("NavHoverBrush", 0x00, 0x00, 0x00, 0.06);
+                SetBrush("NavSelectedBorderBrush", 0x1A, 0x73, 0xE8, 0.7);
+            }
+        }
+
+        private void SetBrush(string resourceKey, byte red, byte green, byte blue, double opacity = 1.0)
+        {
+            Resources[resourceKey] = new SolidColorBrush(Color.FromRgb(red, green, blue)) { Opacity = opacity };
+        }
+
+        private static bool IsSystemDarkModeEnabled()
+        {
+            try
+            {
+                const string personalizeKey = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+                using var key = Registry.CurrentUser.OpenSubKey(personalizeKey);
+                var value = key?.GetValue("AppsUseLightTheme");
+
+                if (value is int intValue)
+                {
+                    return intValue == 0;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public void SetMaxLogFileSizeMb(int sizeMb)

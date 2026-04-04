@@ -80,19 +80,16 @@ namespace ACMECertManager
 
         public static void SaveForPlugin(string pluginId, IReadOnlyDictionary<string, string> values)
         {
-            var all = LoadAll();
-            var existing = all.FirstOrDefault(e => e.PluginId == pluginId);
+            SaveForPlugin(pluginId, values, string.Empty);
+        }
 
-            if (existing is null)
+        public static void SaveForPlugin(string pluginId, IReadOnlyDictionary<string, string> values, string domainContext)
+        {
+            SaveCredential(pluginId, new DnsSecretCredential
             {
-                existing = new DnsSecretEntry { PluginId = pluginId };
-                all.Add(existing);
-            }
-
-            // Use legacy single-entry approach for backward compatibility
-            existing.Values = values.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-            SaveAll(all);
+                Domain = NormalizeDomainContext(domainContext),
+                Values = values.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+            });
         }
 
         public static void SaveCredential(string pluginId, DnsSecretCredential credential)
@@ -106,13 +103,17 @@ namespace ACMECertManager
                 all.Add(existing);
             }
 
+            var normalizedDomain = NormalizeDomainContext(credential.Domain);
+
             // Check if credential for this domain already exists
-            var existingCred = existing.Credentials.FirstOrDefault(c => c.Domain == credential.Domain);
+            var existingCred = existing.Credentials.FirstOrDefault(c =>
+                string.Equals(c.Domain, normalizedDomain, System.StringComparison.OrdinalIgnoreCase));
             if (existingCred != null)
             {
                 existing.Credentials.Remove(existingCred);
             }
 
+            credential.Domain = normalizedDomain;
             existing.Credentials.Add(credential);
             SaveAll(all);
         }
@@ -124,7 +125,9 @@ namespace ACMECertManager
             
             if (existing != null)
             {
-                var cred = existing.Credentials.FirstOrDefault(c => c.Domain == domain);
+                var normalizedDomain = NormalizeDomainContext(domain);
+                var cred = existing.Credentials.FirstOrDefault(c =>
+                    string.Equals(c.Domain, normalizedDomain, System.StringComparison.OrdinalIgnoreCase));
                 if (cred != null)
                 {
                     existing.Credentials.Remove(cred);
@@ -138,6 +141,22 @@ namespace ACMECertManager
 
                 SaveAll(all);
             }
+        }
+
+        internal static string NormalizeDomainContext(string? domain)
+        {
+            if (string.IsNullOrWhiteSpace(domain))
+            {
+                return string.Empty;
+            }
+
+            var normalized = domain.Trim();
+            if (normalized.StartsWith("*.", System.StringComparison.Ordinal))
+            {
+                normalized = normalized[2..];
+            }
+
+            return normalized;
         }
 
         public static void SaveAll(List<DnsSecretEntry> entries)

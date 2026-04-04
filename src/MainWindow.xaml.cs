@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Microsoft.Extensions.Logging;
 
 namespace ACMECertManager
@@ -22,11 +23,16 @@ namespace ACMECertManager
         private LogManager? _logManager;
         private List<LoadedDnsPlugin> _availablePlugins = new();
         private Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isSyncingNavSelection;
+        private readonly Stack<string> _navigationHistory = new();
+        private string _currentPageKey = "Manage";
 
         public MainWindow()
         {
             InitializeComponent();
             _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MainWindow>();
+
+            Loaded += (_, _) => InitializeNavigation();
 
             // Initialize LogManager with the max size from app settings
             var app = (App)Application.Current;
@@ -43,7 +49,17 @@ namespace ACMECertManager
             // Load persisted logs if they exist
             LoadPersistedLogs();
 
-            Log("🚀 ACME Certificate Manager started! Default = staging mode (safe)");
+            Log("🚀 ACME Certificate Manager started! Default = production mode");
+        }
+
+        private void InitializeNavigation()
+        {
+            if (NavPrimaryMenu.Items.Count == 0 && NavFooterMenu.Items.Count == 0)
+            {
+                return;
+            }
+
+            NavigateToPage("Manage", pushHistory: false);
         }
 
         private void Log(string message)
@@ -75,12 +91,18 @@ namespace ACMECertManager
                 var email = txtEmail.Text;
                 if (string.IsNullOrEmpty(email)) throw new Exception("Email required");
 
-                var production = chkProduction.IsChecked == true;
-                var acmeUrl = production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+                var acmeUrl = ResolveAcmeDirectoryUrl();
                 var validationMethod = rbDns.IsChecked == true ? ChallengeValidationMethod.Dns01 : ChallengeValidationMethod.Http01;
+                var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
-                Log($"Using {(production ? "PRODUCTION ⚠️" : "STAGING (safe)")} server");
+                var usingStaging = AcmeService.IsStagingDirectoryUrl(acmeUrl);
+                Log($"Using {(usingStaging ? "STAGING (safe)" : "PRODUCTION")} server");
+                if (!string.Equals(acmeUrl, AcmeService.LetsEncryptProductionDirectoryUrl, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(acmeUrl, AcmeService.LetsEncryptStagingDirectoryUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"Using custom ACME directory URL: {acmeUrl}");
+                }
 
                 DnsPluginExecution? dnsExecution = null;
                 if (validationMethod == ChallengeValidationMethod.Dns01)
@@ -103,7 +125,7 @@ namespace ACMECertManager
                         return;
                     }
 
-                    DnsSecretStorage.SaveForPlugin(loadedPlugin.Metadata.Id, credentials);
+                    DnsSecretStorage.SaveForPlugin(loadedPlugin.Metadata.Id, credentials, GetDnsSecretDomainContext(domains));
                     dnsExecution = new DnsPluginExecution
                     {
                         Plugin = loadedPlugin,
@@ -111,10 +133,26 @@ namespace ACMECertManager
                     };
                 }
 
-                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, dnsExecution, createPfxFile, Log);
+                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, httpDeployment, dnsExecution, createPfxFile, Log);
 
-                _certificates.Add(cert);
+                if (createPfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
+                {
+                    throw new InvalidOperationException("PFX output was requested, but certificate.pfx was not created.");
+                }
+
+                var existingIndex = _certificates.FindIndex(existing =>
+                    string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                {
+                    _certificates[existingIndex] = cert;
+                }
+                else
+                {
+                    _certificates.Add(cert);
+                }
+
                 CertificateStorage.Save(_certificates);
+                _certificates = CertificateStorage.Load();
                 LoadCertificatesGrid();
 
                 Log($"✅ SUCCESS! Certificate for {cert.Domain} issued. Expires {cert.Expires:yyyy-MM-dd}");
@@ -193,6 +231,169 @@ namespace ACMECertManager
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
+        private void NavPrimaryMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isSyncingNavSelection)
+            {
+                return;
+            }
+
+            if (NavPrimaryMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
+            {
+                return;
+            }
+
+            NavigateToPage(pageKey, pushHistory: true);
+        }
+
+        private void NavFooterMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isSyncingNavSelection)
+            {
+                return;
+            }
+
+            if (NavFooterMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
+            {
+                return;
+            }
+
+            NavigateToPage(pageKey, pushHistory: true);
+        }
+
+        private void NavigateToPage(string pageKey, bool pushHistory)
+        {
+            if (string.IsNullOrWhiteSpace(pageKey))
+            {
+                return;
+            }
+
+            if (pushHistory && !string.Equals(_currentPageKey, pageKey, StringComparison.Ordinal))
+            {
+                _navigationHistory.Push(_currentPageKey);
+            }
+
+            ShowPage(pageKey);
+            _currentPageKey = pageKey;
+            SelectMenuForPage(pageKey);
+            UpdateBackButtonState();
+        }
+
+        private void SelectMenuForPage(string pageKey)
+        {
+            _isSyncingNavSelection = true;
+            NavPrimaryMenu.SelectedItem = FindMenuItemByTag(NavPrimaryMenu, pageKey);
+            NavFooterMenu.SelectedItem = FindMenuItemByTag(NavFooterMenu, pageKey);
+            _isSyncingNavSelection = false;
+        }
+
+        private static ListBoxItem? FindMenuItemByTag(ListBox menu, string pageKey)
+        {
+            foreach (var item in menu.Items)
+            {
+                if (item is ListBoxItem listItem && string.Equals(listItem.Tag as string, pageKey, StringComparison.Ordinal))
+                {
+                    return listItem;
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateBackButtonState()
+        {
+            if (FindName("btnBack") is Button backButton)
+            {
+                backButton.IsEnabled = _navigationHistory.Count > 0;
+            }
+        }
+
+        private void Back_Click(object sender, RoutedEventArgs e)
+        {
+            if (_navigationHistory.Count == 0)
+            {
+                return;
+            }
+
+            var previousPage = _navigationHistory.Pop();
+            NavigateToPage(previousPage, pushHistory: false);
+        }
+
+        private void ShowPage(string pageKey)
+        {
+            if (ManagePage is null || IssuePage is null || SettingsPage is null || LogsPage is null)
+            {
+                return;
+            }
+
+            ManagePage.Visibility = Visibility.Collapsed;
+            IssuePage.Visibility = Visibility.Collapsed;
+            SettingsPage.Visibility = Visibility.Collapsed;
+            LogsPage.Visibility = Visibility.Collapsed;
+            FrameworkElement pageToShow;
+
+            switch (pageKey)
+            {
+                case "Issue":
+                    IssuePage.Visibility = Visibility.Visible;
+                    pageToShow = IssuePage;
+                    SetSectionHeader(
+                        "Issue New Certificate",
+                        "Create a new certificate with HTTP-01 or DNS-01 validation.");
+                    break;
+                case "Settings":
+                    SettingsPage.Visibility = Visibility.Visible;
+                    pageToShow = SettingsPage;
+                    SetSectionHeader(
+                        "Settings",
+                        "Manage DNS secrets and application logging preferences.");
+                    break;
+                case "Logs":
+                    LogsPage.Visibility = Visibility.Visible;
+                    pageToShow = LogsPage;
+                    SetSectionHeader(
+                        "Logs",
+                        "Inspect activity history, export logs, or clear log files.");
+                    break;
+                default:
+                    ManagePage.Visibility = Visibility.Visible;
+                    pageToShow = ManagePage;
+                    SetSectionHeader(
+                        "Manage Certificates",
+                        "Review, renew, revoke, or delete existing local certificates.");
+                    break;
+            }
+
+            AnimatePage(pageToShow);
+        }
+
+        private void SetSectionHeader(string title, string subtitle)
+        {
+            if (FindName("txtSectionTitle") is TextBlock titleBlock)
+            {
+                titleBlock.Text = title;
+            }
+
+            if (FindName("txtSectionSubtitle") is TextBlock subtitleBlock)
+            {
+                subtitleBlock.Text = subtitle;
+            }
+        }
+
+        private static void AnimatePage(UIElement page)
+        {
+            page.Opacity = 0;
+
+            var fadeIn = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = TimeSpan.FromMilliseconds(170)
+            };
+
+            page.BeginAnimation(OpacityProperty, fadeIn);
+        }
+
         private void Renew_Click(object sender, RoutedEventArgs e)
         {
             if (dgCertificates.SelectedItem is CertificateModel cert)
@@ -269,16 +470,142 @@ namespace ACMECertManager
 
         private void UpdateValidationUiState()
         {
-            if (rbDns is null || rbHttp is null || grpDnsPlugin is null || txtRelaunchAsAdmin is null)
+            if (rbDns is null || rbHttp is null || grpDnsPlugin is null || grpHttpDeployment is null || txtRelaunchAsAdmin is null)
             {
                 return;
             }
 
             var dnsSelected = rbDns.IsChecked == true;
+            var httpSelected = rbHttp.IsChecked == true;
             grpDnsPlugin.Visibility = dnsSelected ? Visibility.Visible : Visibility.Collapsed;
-            txtRelaunchAsAdmin.Visibility = rbHttp.IsChecked == true && !IsRunningAsAdministrator()
+            grpHttpDeployment.Visibility = httpSelected ? Visibility.Visible : Visibility.Collapsed;
+            txtRelaunchAsAdmin.Visibility = httpSelected && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted) && !IsRunningAsAdministrator()
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            UpdateHttpDeploymentUiState();
+        }
+
+        private void HttpDeploymentMethod_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateHttpDeploymentUiState();
+        }
+
+        private void UpdateHttpDeploymentUiState()
+        {
+            if (pnlHttpTarget is null || pnlHttpCredentials is null || pnlHttpPublicProbe is null || pnlHttpRest is null)
+            {
+                return;
+            }
+
+            var method = GetSelectedHttpDeploymentMethod();
+
+            var usesTarget = method != HttpChallengeDeploymentMethod.SelfHosted;
+            var usesCredentials = method == HttpChallengeDeploymentMethod.Ftp ||
+                                  method == HttpChallengeDeploymentMethod.Sftp ||
+                                  method == HttpChallengeDeploymentMethod.WebDav ||
+                                  method == HttpChallengeDeploymentMethod.Rest;
+            var usesRestOptions = method == HttpChallengeDeploymentMethod.Rest;
+            var usesProbe = method != HttpChallengeDeploymentMethod.SelfHosted;
+
+            pnlHttpTarget.Visibility = usesTarget ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpCredentials.Visibility = usesCredentials ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpRest.Visibility = usesRestOptions ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpPublicProbe.Visibility = usesProbe ? Visibility.Visible : Visibility.Collapsed;
+
+            txtRelaunchAsAdmin.Visibility = rbHttp.IsChecked == true &&
+                                            method == HttpChallengeDeploymentMethod.SelfHosted &&
+                                            !IsRunningAsAdministrator()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private HttpChallengeDeploymentOptions? BuildHttpDeploymentOptions(ChallengeValidationMethod validationMethod)
+        {
+            if (validationMethod != ChallengeValidationMethod.Http01)
+            {
+                return null;
+            }
+
+            var method = GetSelectedHttpDeploymentMethod();
+            var target = txtHttpTarget?.Text?.Trim() ?? string.Empty;
+            var username = txtHttpUsername?.Text?.Trim() ?? string.Empty;
+            var password = txtHttpPassword?.Password?.Trim() ?? string.Empty;
+            var publicProbeTemplate = txtHttpPublicProbeTemplate?.Text?.Trim() ?? string.Empty;
+
+            if (method != HttpChallengeDeploymentMethod.SelfHosted && string.IsNullOrWhiteSpace(target))
+            {
+                throw new InvalidOperationException("HTTP-01 target is required for the selected deployment method.");
+            }
+
+            return new HttpChallengeDeploymentOptions
+            {
+                Method = method,
+                Target = target,
+                Username = username,
+                Password = password,
+                PublicValidationUrlTemplate = string.IsNullOrWhiteSpace(publicProbeTemplate)
+                    ? "http://{domain}/.well-known/acme-challenge/{token}"
+                    : publicProbeTemplate,
+                RestMethod = txtHttpRestMethod?.Text?.Trim() ?? "POST",
+                AdditionalHeaderName = txtHttpHeaderName?.Text?.Trim() ?? string.Empty,
+                AdditionalHeaderValue = txtHttpHeaderValue?.Text?.Trim() ?? string.Empty,
+                BearerToken = txtHttpBearerToken?.Text?.Trim() ?? string.Empty,
+                SkipTlsCertificateValidation = chkHttpSkipTlsValidation?.IsChecked == true
+            };
+        }
+
+        private HttpChallengeDeploymentMethod GetSelectedHttpDeploymentMethod()
+        {
+            if (cmbHttpDeploymentMethod?.SelectedItem is ComboBoxItem item && item.Tag is string raw)
+            {
+                return AcmeService.ParseHttpDeploymentMethod(raw);
+            }
+
+            return HttpChallengeDeploymentMethod.SelfHosted;
+        }
+
+        private bool IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod expected)
+        {
+            return GetSelectedHttpDeploymentMethod() == expected;
+        }
+
+        private string ResolveAcmeDirectoryUrl()
+        {
+            var customUrl = txtCustomAcmeDirectoryUrl?.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(customUrl))
+            {
+                if (!Uri.TryCreate(customUrl, UriKind.Absolute, out var customUri) ||
+                    (customUri.Scheme != Uri.UriSchemeHttps && customUri.Scheme != Uri.UriSchemeHttp))
+                {
+                    throw new InvalidOperationException("Custom ACME directory URL must be a valid absolute HTTP/HTTPS URL.");
+                }
+
+                return customUri.ToString();
+            }
+
+            var useStaging = chkUseStaging?.IsChecked == true;
+            return useStaging
+                ? AcmeService.LetsEncryptStagingDirectoryUrl
+                : AcmeService.LetsEncryptProductionDirectoryUrl;
+        }
+
+        private static string GetDnsSecretDomainContext(IReadOnlyList<string> domains)
+        {
+            if (domains.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var firstDomain = domains[0].Trim();
+            if (string.IsNullOrWhiteSpace(firstDomain))
+            {
+                return string.Empty;
+            }
+
+            return firstDomain.StartsWith("*.", StringComparison.Ordinal)
+                ? firstDomain[2..]
+                : firstDomain;
         }
 
         private void LoadDnsPlugins()
@@ -355,6 +682,7 @@ namespace ACMECertManager
                     Height = 34,
                     Margin = new Thickness(0, 0, 0, 12)
                 };
+                credentialCombo.ItemContainerStyle = (Style)FindResource("ReadableComboBoxItemStyle");
 
                 credentialCombo.Items.Add(new ComboBoxItem { Content = "(use new/custom credentials)" });
 
