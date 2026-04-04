@@ -339,12 +339,25 @@
                                 </StackPanel>
                             </GroupBox>
 
-                            <CheckBox x:Name="chkCreatePfxFile"
-                                      Content="Also create a PFX file (certificate.pfx)"
-                                      Margin="0,10,0,0"
-                                      FontSize="13"/>
+                            <Expander Header="Advanced Options" Margin="0,20,0,0" IsExpanded="False">
+                                <StackPanel Margin="15,8,15,10">
+                                    <CheckBox x:Name="chkCreatePfxFile"
+                                              Content="Also create a PFX file (certificate.pfx)"
+                                              Margin="0,0,0,12"
+                                              FontSize="13"/>
 
-                            <CheckBox x:Name="chkProduction" Content="🚨 SWITCH TO PRODUCTION MODE (real certificates)" Margin="0,20" FontSize="14" Foreground="{DynamicResource WarningBrush}" FontWeight="Bold"/>
+                                    <CheckBox x:Name="chkUseStaging"
+                                              Content="Use Let's Encrypt staging server (test certificates only)"
+                                              Margin="0,0,0,12"
+                                              FontSize="13"/>
+
+                                    <TextBlock Text="Custom ACME directory URL (optional)" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                    <TextBox x:Name="txtCustomAcmeDirectoryUrl"
+                                             Height="34"
+                                             Padding="8,4"
+                                             ToolTip="If set, this overrides Let's Encrypt production/staging selection. Example: https://acme-v02.api.letsencrypt.org/directory"/>
+                                </StackPanel>
+                            </Expander>
 
                             <Button Content="🚀 Issue Certificate Now" Click="IssueCertificate_Click" Height="55" Width="320" FontSize="18" Margin="0,30"/>
                         </StackPanel>

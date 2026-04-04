@@ -58,6 +58,9 @@ namespace ACMECertManager
 
     public class AcmeService
     {
+        public const string LetsEncryptProductionDirectoryUrl = "https://acme-v02.api.letsencrypt.org/directory";
+        public const string LetsEncryptStagingDirectoryUrl = "https://acme-staging-v02.api.letsencrypt.org/directory";
+
         private static readonly TimeSpan DefaultPollDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MaxWaitForAuthorization = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan MaxWaitForOrderReady = TimeSpan.FromMinutes(2);
@@ -578,6 +581,11 @@ namespace ACMECertManager
             return HttpChallengeDeploymentMethod.SelfHosted;
         }
 
+        internal static bool IsStagingDirectoryUrl(string acmeUrl)
+        {
+            return acmeUrl.Contains("staging", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static string BuildProbeUrl(string template, string domain, string token)
         {
             return template
@@ -696,7 +704,7 @@ namespace ACMECertManager
             }
 
             var acmeUrl = string.IsNullOrWhiteSpace(certificate.AcmeDirectoryUrl)
-                ? "https://acme-staging-v02.api.letsencrypt.org/directory"
+                ? LetsEncryptProductionDirectoryUrl
                 : certificate.AcmeDirectoryUrl;
 
             var accountKey = KeyFactory.FromPem(File.ReadAllText(RuntimePaths.AccountFile));

@@ -49,7 +49,7 @@ namespace ACMECertManager
             // Load persisted logs if they exist
             LoadPersistedLogs();
 
-            Log("🚀 ACME Certificate Manager started! Default = staging mode (safe)");
+            Log("🚀 ACME Certificate Manager started! Default = production mode");
         }
 
         private void InitializeNavigation()
@@ -91,13 +91,18 @@ namespace ACMECertManager
                 var email = txtEmail.Text;
                 if (string.IsNullOrEmpty(email)) throw new Exception("Email required");
 
-                var production = chkProduction.IsChecked == true;
-                var acmeUrl = production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+                var acmeUrl = ResolveAcmeDirectoryUrl();
                 var validationMethod = rbDns.IsChecked == true ? ChallengeValidationMethod.Dns01 : ChallengeValidationMethod.Http01;
                 var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
-                Log($"Using {(production ? "PRODUCTION ⚠️" : "STAGING (safe)")} server");
+                var usingStaging = AcmeService.IsStagingDirectoryUrl(acmeUrl);
+                Log($"Using {(usingStaging ? "STAGING (safe)" : "PRODUCTION")} server");
+                if (!string.Equals(acmeUrl, AcmeService.LetsEncryptProductionDirectoryUrl, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(acmeUrl, AcmeService.LetsEncryptStagingDirectoryUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"Using custom ACME directory URL: {acmeUrl}");
+                }
 
                 DnsPluginExecution? dnsExecution = null;
                 if (validationMethod == ChallengeValidationMethod.Dns01)
@@ -120,7 +125,7 @@ namespace ACMECertManager
                         return;
                     }
 
-                    DnsSecretStorage.SaveForPlugin(loadedPlugin.Metadata.Id, credentials);
+                    DnsSecretStorage.SaveForPlugin(loadedPlugin.Metadata.Id, credentials, GetDnsSecretDomainContext(domains));
                     dnsExecution = new DnsPluginExecution
                     {
                         Plugin = loadedPlugin,
@@ -130,8 +135,24 @@ namespace ACMECertManager
 
                 var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, httpDeployment, dnsExecution, createPfxFile, Log);
 
-                _certificates.Add(cert);
+                if (createPfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
+                {
+                    throw new InvalidOperationException("PFX output was requested, but certificate.pfx was not created.");
+                }
+
+                var existingIndex = _certificates.FindIndex(existing =>
+                    string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                {
+                    _certificates[existingIndex] = cert;
+                }
+                else
+                {
+                    _certificates.Add(cert);
+                }
+
                 CertificateStorage.Save(_certificates);
+                _certificates = CertificateStorage.Load();
                 LoadCertificatesGrid();
 
                 Log($"✅ SUCCESS! Certificate for {cert.Domain} issued. Expires {cert.Expires:yyyy-MM-dd}");
@@ -547,6 +568,44 @@ namespace ACMECertManager
         private bool IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod expected)
         {
             return GetSelectedHttpDeploymentMethod() == expected;
+        }
+
+        private string ResolveAcmeDirectoryUrl()
+        {
+            var customUrl = txtCustomAcmeDirectoryUrl?.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(customUrl))
+            {
+                if (!Uri.TryCreate(customUrl, UriKind.Absolute, out var customUri) ||
+                    (customUri.Scheme != Uri.UriSchemeHttps && customUri.Scheme != Uri.UriSchemeHttp))
+                {
+                    throw new InvalidOperationException("Custom ACME directory URL must be a valid absolute HTTP/HTTPS URL.");
+                }
+
+                return customUri.ToString();
+            }
+
+            var useStaging = chkUseStaging?.IsChecked == true;
+            return useStaging
+                ? AcmeService.LetsEncryptStagingDirectoryUrl
+                : AcmeService.LetsEncryptProductionDirectoryUrl;
+        }
+
+        private static string GetDnsSecretDomainContext(IReadOnlyList<string> domains)
+        {
+            if (domains.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var firstDomain = domains[0].Trim();
+            if (string.IsNullOrWhiteSpace(firstDomain))
+            {
+                return string.Empty;
+            }
+
+            return firstDomain.StartsWith("*.", StringComparison.Ordinal)
+                ? firstDomain[2..]
+                : firstDomain;
         }
 
         private void LoadDnsPlugins()

@@ -9,7 +9,7 @@
 2. Extract the package and run `acm.exe`
 3. Go to “Issue New Certificate” tab and click the big button
 
-**Always starts in STAGING mode** – safe for testing. Flip the toggle only when ready for real certificates.
+**Defaults to Let's Encrypt production** (real certificates). Use the advanced options in Issue New Certificate to switch to staging when testing.
 
 ## Requirements
 - Minimum runtime for development and source builds: .NET 10 (net10.0-windows).
@@ -84,8 +84,15 @@ Operational sequence:
 
 Warning: DNS plugin secrets are currently stored in plaintext in storage/dns-secrets.json.
 
-Advanced option:
-- In Settings, enable Also save PEM artifacts (fullchain, chain, cert, key) alongside PFX to persist both output formats.
+Saved DNS credentials now default to the current certificate hostname as Domain/Context when available. Blank Domain/Context is only used when no hostname is provided.
+
+Advanced ACME options (Issue New Certificate):
+- Use Let's Encrypt staging server for test issuance.
+- Optionally override with a custom ACME directory URL.
+
+Certificate output and visibility:
+- If PFX output is selected, issuance now validates that certificate.pfx was actually created.
+- Issued certificates are persisted to storage/certificates.json and immediately reloaded into the Manage Certificates grid.
 
 ## How to Get Your .exe (2 ways)
 
@@ -99,7 +106,7 @@ Advanced option:
 4. To create single .exe: right-click project → Publish → self-contained win-x64 → Publish
 
 ## Security Tips
-- Start in staging mode!
+- Production is the default. Use staging from advanced options when testing to avoid rate limits.
 - Run as Administrator first time (for HTTP-01 on port 80)
 - Certificates auto-saved in `certs/` folder
 - DNS plugin credentials are stored unsecured (plaintext) in `storage/dns-secrets.json`

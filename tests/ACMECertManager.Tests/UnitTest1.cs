@@ -26,6 +26,13 @@ public sealed class StorageAndModelTests
     }
 
     [Fact]
+    public void IsStagingDirectoryUrl_DetectsStagingHost()
+    {
+        Assert.True(AcmeService.IsStagingDirectoryUrl(AcmeService.LetsEncryptStagingDirectoryUrl));
+        Assert.False(AcmeService.IsStagingDirectoryUrl(AcmeService.LetsEncryptProductionDirectoryUrl));
+    }
+
+    [Fact]
     public void BuildProbeUrl_ReplacesDomainAndTokenPlaceholders()
     {
         var url = AcmeService.BuildProbeUrl(
@@ -101,6 +108,14 @@ public sealed class StorageAndModelTests
 
         Assert.Single(values);
         Assert.Equal("a", values["token"]);
+    }
+
+    [Fact]
+    public void NormalizeDomainContext_HandlesWildcardAndBlank()
+    {
+        Assert.Equal("example.com", DnsSecretStorage.NormalizeDomainContext("*.example.com"));
+        Assert.Equal("example.com", DnsSecretStorage.NormalizeDomainContext("example.com"));
+        Assert.Equal(string.Empty, DnsSecretStorage.NormalizeDomainContext("  "));
     }
 
     [Fact]
