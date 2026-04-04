@@ -7,10 +7,16 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using FluentFTP;
+using Renci.SshNet;
 
 namespace ACMECertManager
 {
@@ -18,6 +24,30 @@ namespace ACMECertManager
     {
         Http01,
         Dns01
+    }
+
+    public enum HttpChallengeDeploymentMethod
+    {
+        SelfHosted,
+        NetworkPath,
+        Ftp,
+        Sftp,
+        WebDav,
+        Rest
+    }
+
+    public sealed class HttpChallengeDeploymentOptions
+    {
+        public HttpChallengeDeploymentMethod Method { get; init; } = HttpChallengeDeploymentMethod.SelfHosted;
+        public string Target { get; init; } = string.Empty;
+        public string Username { get; init; } = string.Empty;
+        public string Password { get; init; } = string.Empty;
+        public string PublicValidationUrlTemplate { get; init; } = "http://{domain}/.well-known/acme-challenge/{token}";
+        public string RestMethod { get; init; } = "POST";
+        public string AdditionalHeaderName { get; init; } = string.Empty;
+        public string AdditionalHeaderValue { get; init; } = string.Empty;
+        public string BearerToken { get; init; } = string.Empty;
+        public bool SkipTlsCertificateValidation { get; init; }
     }
 
     public sealed class DnsPluginExecution
@@ -43,6 +73,7 @@ namespace ACMECertManager
             string email,
             string acmeUrl,
             ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
             DnsPluginExecution? dnsPlugin,
             bool createPfxFile,
             Action<string>? log = null)
@@ -52,6 +83,11 @@ namespace ACMECertManager
             log?.Invoke($"[ACME] Starting certificate issuance for domains: {string.Join(", ", domains)}");
             log?.Invoke($"[ACME] ACME Server: {(acmeUrl.Contains("staging") ? "STAGING (safe)" : "PRODUCTION (real)")}");
             log?.Invoke($"[ACME] Validation Method: {validationMethod}");
+            if (validationMethod == ChallengeValidationMethod.Http01)
+            {
+                var httpMethod = httpDeployment?.Method ?? HttpChallengeDeploymentMethod.SelfHosted;
+                log?.Invoke($"[HTTP-01] Deployment Method: {httpMethod}");
+            }
             log?.Invoke($"[ACME] Account Email: {email}");
 
             AcmeContext acme;
@@ -90,17 +126,9 @@ namespace ACMECertManager
 
                 if (validationMethod == ChallengeValidationMethod.Http01)
                 {
-                    log?.Invoke("[HTTP-01] Starting HTTP challenge server on port 80...");
                     var challenge = await authz.Http();
-                    using var server = new HttpChallengeServer(challenge.Token, challenge.KeyAuthz);
-                    server.Start();
-                    log?.Invoke("[HTTP-01] HTTP server started, sending challenge validation request...");
-                    await challenge.Validate();
-                    log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
-                    await WaitForAuthorizationValidAsync(authz);
-                    log?.Invoke("[HTTP-01] Challenge validated successfully, stopping server...");
-                    server.Stop();
-                    log?.Invoke("[HTTP-01] HTTP challenge completed");
+                    var httpIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
+                    await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log);
                     continue;
                 }
 
@@ -111,18 +139,18 @@ namespace ACMECertManager
 
                 log?.Invoke("[DNS-01] Starting DNS challenge validation...");
                 var dnsChallenge = await authz.Dns();
-                var identifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
+                var dnsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
                 var dnsRequest = new DnsChallengeRequest
                 {
-                    Domain = identifier,
-                    RecordName = $"_acme-challenge.{identifier}",
+                    Domain = dnsIdentifier,
+                    RecordName = $"_acme-challenge.{dnsIdentifier}",
                     Token = dnsChallenge.Token,
                     KeyAuthorization = dnsChallenge.KeyAuthz,
                     TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
                 };
 
                 log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
-                log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {identifier}");
+                log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {dnsIdentifier}");
                 await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
                 log?.Invoke("[DNS-01] DNS record presented");
 
@@ -227,6 +255,437 @@ namespace ACMECertManager
                 AcmeDirectoryUrl = acmeUrl,
                 ValidationMethod = validationMethod == ChallengeValidationMethod.Http01 ? "HTTP-01" : "DNS-01"
             };
+        }
+
+        private static async Task HandleHttpAuthorizationAsync(
+            IChallengeContext challenge,
+            IAuthorizationContext authz,
+            string identifier,
+            HttpChallengeDeploymentOptions? options,
+            Action<string>? log)
+        {
+            var effectiveOptions = options ?? new HttpChallengeDeploymentOptions();
+
+            if (effectiveOptions.Method == HttpChallengeDeploymentMethod.SelfHosted)
+            {
+                log?.Invoke("[HTTP-01] Starting HTTP challenge server on port 80...");
+                using var server = new HttpChallengeServer(challenge.Token, challenge.KeyAuthz);
+                server.Start();
+                log?.Invoke("[HTTP-01] HTTP server started, sending challenge validation request...");
+                await challenge.Validate();
+                log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
+                await WaitForAuthorizationValidAsync(authz);
+                log?.Invoke("[HTTP-01] Challenge validated successfully, stopping server...");
+                server.Stop();
+                log?.Invoke("[HTTP-01] HTTP challenge completed");
+                return;
+            }
+
+            var deploymentKey = await DeployHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, log);
+            try
+            {
+                await ProbeHttpChallengeAsync(identifier, challenge.Token, challenge.KeyAuthz, effectiveOptions, log);
+                log?.Invoke("[HTTP-01] Sending challenge validation request...");
+                await challenge.Validate();
+                log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
+                await WaitForAuthorizationValidAsync(authz);
+                log?.Invoke("[HTTP-01] Challenge validated successfully");
+            }
+            finally
+            {
+                try
+                {
+                    await CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log);
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
+                }
+            }
+        }
+
+        private static async Task<string> DeployHttpChallengeAsync(
+            string token,
+            string keyAuthorization,
+            string identifier,
+            HttpChallengeDeploymentOptions options,
+            Action<string>? log)
+        {
+            switch (options.Method)
+            {
+                case HttpChallengeDeploymentMethod.NetworkPath:
+                    EnsureRequiredTarget(options.Target, "network path");
+                    System.IO.Directory.CreateDirectory(options.Target);
+                    var path = Path.Combine(options.Target, token);
+                    await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine);
+                    log?.Invoke($"[HTTP-01] Challenge file written to network/local path: {path}");
+                    return path;
+
+                case HttpChallengeDeploymentMethod.Ftp:
+                    EnsureRequiredTarget(options.Target, "FTP target URL");
+                    var ftpUri = EnsureUri(options.Target, "ftp");
+                    var ftpUsername = ResolveUsername(options, ftpUri, "anonymous");
+                    var ftpPassword = ResolvePassword(options, ftpUri);
+                    var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : ftpUri.AbsolutePath;
+                    var ftpUrl = CombineUrl(options.Target, token);
+                    var ftpRemotePath = CombineSftpPath(ftpDirectory, token);
+                    var ftpPayload = Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine);
+
+                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
+                    {
+                        await ftpClient.Connect();
+                        await ftpClient.UploadBytes(ftpPayload, ftpRemotePath, createRemoteDir: true, token: CancellationToken.None);
+                        await ftpClient.Disconnect();
+                    }
+
+                    log?.Invoke($"[HTTP-01] Uploaded challenge file over FTP: {ftpUrl}");
+                    return ftpUrl;
+
+                case HttpChallengeDeploymentMethod.Sftp:
+                    EnsureRequiredTarget(options.Target, "SFTP target URL");
+                    EnsureRequiredCredentials(options, "SFTP");
+                    var sftpUri = EnsureUri(options.Target, "sftp");
+                    var remoteDirectory = string.IsNullOrWhiteSpace(sftpUri.AbsolutePath) ? "/" : sftpUri.AbsolutePath;
+                    var remoteFilePath = CombineSftpPath(remoteDirectory, token);
+
+                    await Task.Run(() =>
+                    {
+                        using var client = new SftpClient(sftpUri.Host, sftpUri.Port > 0 ? sftpUri.Port : 22, options.Username, options.Password);
+                        client.Connect();
+                        EnsureSftpDirectoryExists(client, remoteDirectory);
+                        using var payload = new MemoryStream(Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine));
+                        client.UploadFile(payload, remoteFilePath, true);
+                        client.Disconnect();
+                    });
+
+                    log?.Invoke($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}");
+                    return remoteFilePath;
+
+                case HttpChallengeDeploymentMethod.WebDav:
+                    EnsureRequiredTarget(options.Target, "WebDav target URL");
+                    var webDavUrl = CombineUrl(options.Target, token);
+                    using (var client = CreateHttpClient(options.SkipTlsCertificateValidation))
+                    {
+                        ApplyHttpAuthentication(client, options);
+                        using var content = new StringContent(keyAuthorization + Environment.NewLine, Encoding.UTF8, "text/plain");
+                        using var response = await client.PutAsync(webDavUrl, content);
+                        response.EnsureSuccessStatusCode();
+                    }
+
+                    log?.Invoke($"[HTTP-01] Uploaded challenge file over WebDav: {webDavUrl}");
+                    return webDavUrl;
+
+                case HttpChallengeDeploymentMethod.Rest:
+                    EnsureRequiredTarget(options.Target, "REST endpoint URL");
+                    await SendRestChallengeRequestAsync(options, "present", token, keyAuthorization, identifier);
+                    log?.Invoke($"[HTTP-01] Presented challenge via REST endpoint: {options.Target}");
+                    return options.Target;
+
+                default:
+                    throw new InvalidOperationException($"Unsupported HTTP deployment method '{options.Method}'.");
+            }
+        }
+
+        private static async Task CleanupHttpChallengeAsync(
+            string token,
+            string keyAuthorization,
+            string identifier,
+            HttpChallengeDeploymentOptions options,
+            string deploymentKey,
+            Action<string>? log)
+        {
+            switch (options.Method)
+            {
+                case HttpChallengeDeploymentMethod.NetworkPath:
+                    if (File.Exists(deploymentKey))
+                    {
+                        File.Delete(deploymentKey);
+                    }
+
+                    log?.Invoke("[HTTP-01] Removed challenge file from network/local path");
+                    break;
+
+                case HttpChallengeDeploymentMethod.Ftp:
+                    EnsureRequiredTarget(options.Target, "FTP target URL");
+                    var ftpUri = EnsureUri(options.Target, "ftp");
+                    var ftpUsername = ResolveUsername(options, ftpUri, "anonymous");
+                    var ftpPassword = ResolvePassword(options, ftpUri);
+                    var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : ftpUri.AbsolutePath;
+                    var ftpRemotePath = CombineSftpPath(ftpDirectory, token);
+
+                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
+                    {
+                        await ftpClient.Connect();
+                        if (await ftpClient.FileExists(ftpRemotePath, CancellationToken.None))
+                        {
+                            await ftpClient.DeleteFile(ftpRemotePath, CancellationToken.None);
+                        }
+
+                        await ftpClient.Disconnect();
+                    }
+
+                    log?.Invoke("[HTTP-01] Removed challenge file from FTP target");
+                    break;
+
+                case HttpChallengeDeploymentMethod.Sftp:
+                    EnsureRequiredTarget(options.Target, "SFTP target URL");
+                    EnsureRequiredCredentials(options, "SFTP");
+                    var sftpUri = EnsureUri(options.Target, "sftp");
+                    await Task.Run(() =>
+                    {
+                        using var client = new SftpClient(sftpUri.Host, sftpUri.Port > 0 ? sftpUri.Port : 22, options.Username, options.Password);
+                        client.Connect();
+                        if (client.Exists(deploymentKey))
+                        {
+                            client.DeleteFile(deploymentKey);
+                        }
+
+                        client.Disconnect();
+                    });
+
+                    log?.Invoke("[HTTP-01] Removed challenge file from SFTP target");
+                    break;
+
+                case HttpChallengeDeploymentMethod.WebDav:
+                    using (var client = CreateHttpClient(options.SkipTlsCertificateValidation))
+                    {
+                        ApplyHttpAuthentication(client, options);
+                        using var request = new HttpRequestMessage(HttpMethod.Delete, deploymentKey);
+                        using var response = await client.SendAsync(request);
+                        if (response.StatusCode != HttpStatusCode.NotFound)
+                        {
+                            response.EnsureSuccessStatusCode();
+                        }
+                    }
+
+                    log?.Invoke("[HTTP-01] Removed challenge file from WebDav target");
+                    break;
+
+                case HttpChallengeDeploymentMethod.Rest:
+                    await SendRestChallengeRequestAsync(options, "cleanup", token, keyAuthorization, identifier);
+                    log?.Invoke("[HTTP-01] Cleanup request sent to REST endpoint");
+                    break;
+            }
+        }
+
+        private static async Task ProbeHttpChallengeAsync(
+            string identifier,
+            string token,
+            string keyAuthorization,
+            HttpChallengeDeploymentOptions options,
+            Action<string>? log)
+        {
+            if (string.IsNullOrWhiteSpace(options.PublicValidationUrlTemplate))
+            {
+                return;
+            }
+
+            var probeUrl = BuildProbeUrl(options.PublicValidationUrlTemplate, identifier, token);
+
+            try
+            {
+                using var client = CreateHttpClient(false);
+                using var response = await client.GetAsync(probeUrl);
+                var content = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode &&
+                    string.Equals(content.Trim(), keyAuthorization.Trim(), StringComparison.Ordinal))
+                {
+                    log?.Invoke($"[HTTP-01] Probe succeeded at {probeUrl}");
+                }
+                else
+                {
+                    log?.Invoke($"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+        }
+
+        private static async Task SendRestChallengeRequestAsync(
+            HttpChallengeDeploymentOptions options,
+            string action,
+            string token,
+            string keyAuthorization,
+            string identifier)
+        {
+            using var client = CreateHttpClient(options.SkipTlsCertificateValidation);
+            ApplyHttpAuthentication(client, options);
+
+            if (!string.IsNullOrWhiteSpace(options.AdditionalHeaderName) &&
+                !string.IsNullOrWhiteSpace(options.AdditionalHeaderValue))
+            {
+                client.DefaultRequestHeaders.Remove(options.AdditionalHeaderName);
+                client.DefaultRequestHeaders.TryAddWithoutValidation(options.AdditionalHeaderName, options.AdditionalHeaderValue);
+            }
+
+            var method = string.IsNullOrWhiteSpace(options.RestMethod) ? "POST" : options.RestMethod;
+            using var request = new HttpRequestMessage(new HttpMethod(method), options.Target)
+            {
+                Content = new StringContent(BuildRestPayloadJson(action, identifier, token, keyAuthorization), Encoding.UTF8, "application/json")
+            };
+
+            using var response = await client.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+
+        private static void ApplyHttpAuthentication(HttpClient client, HttpChallengeDeploymentOptions options)
+        {
+            if (!string.IsNullOrWhiteSpace(options.BearerToken))
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.BearerToken);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Username) || !string.IsNullOrWhiteSpace(options.Password))
+            {
+                var raw = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{options.Username}:{options.Password}"));
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", raw);
+            }
+        }
+
+        private static HttpClient CreateHttpClient(bool skipTlsValidation)
+        {
+            if (!skipTlsValidation)
+            {
+                return new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            }
+
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
+            };
+
+            return new HttpClient(handler, disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromSeconds(15)
+            };
+        }
+
+        private static string CombineUrl(string baseUrl, string segment)
+        {
+            return $"{baseUrl.TrimEnd('/')}/{segment}";
+        }
+
+        internal static HttpChallengeDeploymentMethod ParseHttpDeploymentMethod(string? raw)
+        {
+            if (Enum.TryParse<HttpChallengeDeploymentMethod>(raw, ignoreCase: true, out var parsed))
+            {
+                return parsed;
+            }
+
+            return HttpChallengeDeploymentMethod.SelfHosted;
+        }
+
+        internal static string BuildProbeUrl(string template, string domain, string token)
+        {
+            return template
+                .Replace("{domain}", domain, StringComparison.OrdinalIgnoreCase)
+                .Replace("{token}", token, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static string BuildRestPayloadJson(string action, string domain, string token, string keyAuthorization)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                action,
+                domain,
+                token,
+                keyAuthorization,
+                relativePath = $"/.well-known/acme-challenge/{token}"
+            });
+        }
+
+        private static string CombineSftpPath(string directory, string segment)
+        {
+            var trimmed = directory.TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                return $"/{segment}";
+            }
+
+            return $"{trimmed}/{segment}";
+        }
+
+        private static Uri EnsureUri(string url, string expectedScheme)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Scheme, expectedScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Expected a valid {expectedScheme.ToUpperInvariant()} URL, but got '{url}'.");
+            }
+
+            return uri;
+        }
+
+        private static void EnsureRequiredTarget(string target, string targetDescription)
+        {
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                throw new InvalidOperationException($"HTTP-01 {targetDescription} is required for this deployment method.");
+            }
+        }
+
+        private static void EnsureRequiredCredentials(HttpChallengeDeploymentOptions options, string protocol)
+        {
+            if (string.IsNullOrWhiteSpace(options.Username) || string.IsNullOrWhiteSpace(options.Password))
+            {
+                throw new InvalidOperationException($"{protocol} deployment requires username and password.");
+            }
+        }
+
+        private static string ResolveUsername(HttpChallengeDeploymentOptions options, Uri uri, string defaultValue)
+        {
+            if (!string.IsNullOrWhiteSpace(options.Username))
+            {
+                return options.Username;
+            }
+
+            if (!string.IsNullOrWhiteSpace(uri.UserInfo))
+            {
+                return Uri.UnescapeDataString(uri.UserInfo.Split(':', 2)[0]);
+            }
+
+            return defaultValue;
+        }
+
+        private static string ResolvePassword(HttpChallengeDeploymentOptions options, Uri uri)
+        {
+            if (!string.IsNullOrWhiteSpace(options.Password))
+            {
+                return options.Password;
+            }
+
+            if (!string.IsNullOrWhiteSpace(uri.UserInfo))
+            {
+                var parts = uri.UserInfo.Split(':', 2);
+                if (parts.Length == 2)
+                {
+                    return Uri.UnescapeDataString(parts[1]);
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static void EnsureSftpDirectoryExists(SftpClient client, string fullPath)
+        {
+            if (string.IsNullOrWhiteSpace(fullPath) || fullPath == "/")
+            {
+                return;
+            }
+
+            var segments = fullPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var current = "/";
+            foreach (var segment in segments)
+            {
+                current = CombineSftpPath(current, segment);
+                if (!client.Exists(current))
+                {
+                    client.CreateDirectory(current);
+                }
+            }
         }
 
         public async Task RevokeCertificateAsync(CertificateModel certificate)

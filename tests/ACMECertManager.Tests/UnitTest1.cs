@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
 using Xunit;
 using ACMECertManager;
 
@@ -8,6 +9,47 @@ namespace ACMECertManager.Tests;
 
 public sealed class StorageAndModelTests
 {
+    [Fact]
+    public void ParseHttpDeploymentMethod_ReturnsExpectedValue()
+    {
+        var parsed = AcmeService.ParseHttpDeploymentMethod("Sftp");
+
+        Assert.Equal(HttpChallengeDeploymentMethod.Sftp, parsed);
+    }
+
+    [Fact]
+    public void ParseHttpDeploymentMethod_UnknownFallsBackToSelfHosted()
+    {
+        var parsed = AcmeService.ParseHttpDeploymentMethod("not-a-method");
+
+        Assert.Equal(HttpChallengeDeploymentMethod.SelfHosted, parsed);
+    }
+
+    [Fact]
+    public void BuildProbeUrl_ReplacesDomainAndTokenPlaceholders()
+    {
+        var url = AcmeService.BuildProbeUrl(
+            "https://edge.example.net/challenge?d={domain}&token={token}",
+            "example.com",
+            "abc123");
+
+        Assert.Equal("https://edge.example.net/challenge?d=example.com&token=abc123", url);
+    }
+
+    [Fact]
+    public void BuildRestPayloadJson_ContainsExpectedFields()
+    {
+        var payload = AcmeService.BuildRestPayloadJson("present", "example.com", "tok123", "tok123.key");
+
+        using var json = JsonDocument.Parse(payload);
+        var root = json.RootElement;
+        Assert.Equal("present", root.GetProperty("action").GetString());
+        Assert.Equal("example.com", root.GetProperty("domain").GetString());
+        Assert.Equal("tok123", root.GetProperty("token").GetString());
+        Assert.Equal("tok123.key", root.GetProperty("keyAuthorization").GetString());
+        Assert.Equal("/.well-known/acme-challenge/tok123", root.GetProperty("relativePath").GetString());
+    }
+
     [Fact]
     public void CertificateModel_UsesExpectedDefaults()
     {

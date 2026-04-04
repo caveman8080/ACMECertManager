@@ -24,15 +24,39 @@
         </Style>
 
         <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
         </Style>
 
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Style x:Key="ReadableComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
+        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource ReadableComboBoxItemStyle}"/>
 
         <Style TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
@@ -253,12 +277,53 @@
                             <GroupBox Header="Validation Method" Margin="0,15">
                                 <StackPanel Orientation="Horizontal" Margin="15" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,40,0">
-                                        <RadioButton x:Name="rbHttp" Content="HTTP-01" IsChecked="True" FontSize="14" VerticalAlignment="Center" Checked="ValidationMethod_Checked"/>
+                                        <RadioButton x:Name="rbHttp" GroupName="ValidationMethod" Content="HTTP-01" IsChecked="True" FontSize="14" VerticalAlignment="Center" Checked="ValidationMethod_Checked"/>
                                         <TextBlock x:Name="txtRelaunchAsAdmin" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource WarningBrush}">
                                             <Hyperlink Click="RelaunchAsAdmin_Click">Re-launch as Administrator</Hyperlink>
                                         </TextBlock>
                                     </StackPanel>
-                                    <RadioButton x:Name="rbDns" Content="DNS-01 (plugin)" FontSize="14" VerticalAlignment="Center" Checked="ValidationMethod_Checked"/>
+                                    <RadioButton x:Name="rbDns" GroupName="ValidationMethod" Content="DNS-01 (plugin)" FontSize="14" VerticalAlignment="Center" Checked="ValidationMethod_Checked"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox x:Name="grpHttpDeployment" Header="HTTP-01 Deployment" Margin="0,10">
+                                <StackPanel Margin="15">
+                                    <TextBlock Text="Choose how to publish /.well-known/acme-challenge/{token}. Self-hosted uses a temporary listener on port 80." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,8"/>
+
+                                    <TextBlock Text="Deployment Method" FontSize="14" Margin="0,2,0,5" FontWeight="SemiBold"/>
+                                    <ComboBox x:Name="cmbHttpDeploymentMethod" Height="34" SelectionChanged="HttpDeploymentMethod_Changed" Margin="0,0,0,10" ItemContainerStyle="{StaticResource ReadableComboBoxItemStyle}">
+                                        <ComboBoxItem Tag="SelfHosted" IsSelected="True">Self-hosted listener (port 80)</ComboBoxItem>
+                                        <ComboBoxItem Tag="NetworkPath">Save to local/network path (UNC supported)</ComboBoxItem>
+                                        <ComboBoxItem Tag="Ftp">FTP upload</ComboBoxItem>
+                                        <ComboBoxItem Tag="Sftp">SFTP upload</ComboBoxItem>
+                                        <ComboBoxItem Tag="WebDav">WebDav upload</ComboBoxItem>
+                                        <ComboBoxItem Tag="Rest">REST endpoint</ComboBoxItem>
+                                    </ComboBox>
+
+                                    <StackPanel x:Name="pnlHttpTarget" Margin="0,2,0,8" Visibility="Collapsed">
+                                        <TextBlock Text="Target (directory path or endpoint URL)" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                        <TextBox x:Name="txtHttpTarget" Height="34" Padding="8,4" ToolTip="Examples: \\\\server\\share\\.well-known\\acme-challenge, ftp://host/.well-known/acme-challenge, sftp://host:22/.well-known/acme-challenge, https://host/webdav/.well-known/acme-challenge, https://api.example.com/acme/challenge"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlHttpCredentials" Margin="0,2,0,8" Visibility="Collapsed">
+                                        <TextBlock Text="Authentication (when required)" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                        <TextBox x:Name="txtHttpUsername" Height="34" Padding="8,4" Margin="0,0,0,6" ToolTip="Username"/>
+                                        <PasswordBox x:Name="txtHttpPassword" Height="34" Padding="8,4" ToolTip="Password"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlHttpRest" Margin="0,2,0,8" Visibility="Collapsed">
+                                        <TextBlock Text="REST Options" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                        <TextBox x:Name="txtHttpRestMethod" Height="34" Padding="8,4" Margin="0,0,0,6" Text="POST" ToolTip="HTTP method (for present and cleanup calls)"/>
+                                        <TextBox x:Name="txtHttpBearerToken" Height="34" Padding="8,4" Margin="0,0,0,6" ToolTip="Bearer token (optional)"/>
+                                        <TextBox x:Name="txtHttpHeaderName" Height="34" Padding="8,4" Margin="0,0,0,6" ToolTip="Additional header name (optional)"/>
+                                        <TextBox x:Name="txtHttpHeaderValue" Height="34" Padding="8,4" ToolTip="Additional header value (optional)"/>
+                                        <CheckBox x:Name="chkHttpSkipTlsValidation" Content="Skip TLS certificate validation (for private/self-signed endpoints)" Margin="0,8,0,0" FontSize="12"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlHttpPublicProbe" Margin="0,2,0,0" Visibility="Collapsed">
+                                        <TextBlock Text="Public Probe URL Template" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                        <TextBox x:Name="txtHttpPublicProbeTemplate" Height="34" Padding="8,4" Text="http://{domain}/.well-known/acme-challenge/{token}" ToolTip="Optional probe URL before challenge validation. Use placeholders {domain} and {token}."/>
+                                    </StackPanel>
                                 </StackPanel>
                             </GroupBox>
 
@@ -266,7 +331,7 @@
                                 <StackPanel Margin="15">
                                     <TextBlock Text="Warning: DNS plugin secrets are stored as plaintext inside storage/dns-secrets.json." FontSize="12" Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,8" TextWrapping="Wrap"/>
                                     <TextBlock Text="DNS Provider Plugin" FontSize="14" Margin="0,2,0,5" FontWeight="SemiBold"/>
-                                    <ComboBox x:Name="cmbDnsPlugin" Height="34" SelectionChanged="DnsPluginSelection_Changed" DisplayMemberPath="DisplayName" Margin="0,0,0,10"/>
+                                    <ComboBox x:Name="cmbDnsPlugin" Height="34" SelectionChanged="DnsPluginSelection_Changed" DisplayMemberPath="DisplayName" Margin="0,0,0,10" ItemContainerStyle="{StaticResource ReadableComboBoxItemStyle}"/>
 
                                     <TextBlock x:Name="txtPluginDescription" FontSize="12" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}" TextWrapping="Wrap" Margin="0,0,0,8"/>
 

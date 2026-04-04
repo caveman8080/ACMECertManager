@@ -94,6 +94,7 @@ namespace ACMECertManager
                 var production = chkProduction.IsChecked == true;
                 var acmeUrl = production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
                 var validationMethod = rbDns.IsChecked == true ? ChallengeValidationMethod.Dns01 : ChallengeValidationMethod.Http01;
+                var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
                 Log($"Using {(production ? "PRODUCTION ⚠️" : "STAGING (safe)")} server");
@@ -127,7 +128,7 @@ namespace ACMECertManager
                     };
                 }
 
-                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, dnsExecution, createPfxFile, Log);
+                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, httpDeployment, dnsExecution, createPfxFile, Log);
 
                 _certificates.Add(cert);
                 CertificateStorage.Save(_certificates);
@@ -448,16 +449,104 @@ namespace ACMECertManager
 
         private void UpdateValidationUiState()
         {
-            if (rbDns is null || rbHttp is null || grpDnsPlugin is null || txtRelaunchAsAdmin is null)
+            if (rbDns is null || rbHttp is null || grpDnsPlugin is null || grpHttpDeployment is null || txtRelaunchAsAdmin is null)
             {
                 return;
             }
 
             var dnsSelected = rbDns.IsChecked == true;
+            var httpSelected = rbHttp.IsChecked == true;
             grpDnsPlugin.Visibility = dnsSelected ? Visibility.Visible : Visibility.Collapsed;
-            txtRelaunchAsAdmin.Visibility = rbHttp.IsChecked == true && !IsRunningAsAdministrator()
+            grpHttpDeployment.Visibility = httpSelected ? Visibility.Visible : Visibility.Collapsed;
+            txtRelaunchAsAdmin.Visibility = httpSelected && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted) && !IsRunningAsAdministrator()
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            UpdateHttpDeploymentUiState();
+        }
+
+        private void HttpDeploymentMethod_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateHttpDeploymentUiState();
+        }
+
+        private void UpdateHttpDeploymentUiState()
+        {
+            if (pnlHttpTarget is null || pnlHttpCredentials is null || pnlHttpPublicProbe is null || pnlHttpRest is null)
+            {
+                return;
+            }
+
+            var method = GetSelectedHttpDeploymentMethod();
+
+            var usesTarget = method != HttpChallengeDeploymentMethod.SelfHosted;
+            var usesCredentials = method == HttpChallengeDeploymentMethod.Ftp ||
+                                  method == HttpChallengeDeploymentMethod.Sftp ||
+                                  method == HttpChallengeDeploymentMethod.WebDav ||
+                                  method == HttpChallengeDeploymentMethod.Rest;
+            var usesRestOptions = method == HttpChallengeDeploymentMethod.Rest;
+            var usesProbe = method != HttpChallengeDeploymentMethod.SelfHosted;
+
+            pnlHttpTarget.Visibility = usesTarget ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpCredentials.Visibility = usesCredentials ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpRest.Visibility = usesRestOptions ? Visibility.Visible : Visibility.Collapsed;
+            pnlHttpPublicProbe.Visibility = usesProbe ? Visibility.Visible : Visibility.Collapsed;
+
+            txtRelaunchAsAdmin.Visibility = rbHttp.IsChecked == true &&
+                                            method == HttpChallengeDeploymentMethod.SelfHosted &&
+                                            !IsRunningAsAdministrator()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private HttpChallengeDeploymentOptions? BuildHttpDeploymentOptions(ChallengeValidationMethod validationMethod)
+        {
+            if (validationMethod != ChallengeValidationMethod.Http01)
+            {
+                return null;
+            }
+
+            var method = GetSelectedHttpDeploymentMethod();
+            var target = txtHttpTarget?.Text?.Trim() ?? string.Empty;
+            var username = txtHttpUsername?.Text?.Trim() ?? string.Empty;
+            var password = txtHttpPassword?.Password?.Trim() ?? string.Empty;
+            var publicProbeTemplate = txtHttpPublicProbeTemplate?.Text?.Trim() ?? string.Empty;
+
+            if (method != HttpChallengeDeploymentMethod.SelfHosted && string.IsNullOrWhiteSpace(target))
+            {
+                throw new InvalidOperationException("HTTP-01 target is required for the selected deployment method.");
+            }
+
+            return new HttpChallengeDeploymentOptions
+            {
+                Method = method,
+                Target = target,
+                Username = username,
+                Password = password,
+                PublicValidationUrlTemplate = string.IsNullOrWhiteSpace(publicProbeTemplate)
+                    ? "http://{domain}/.well-known/acme-challenge/{token}"
+                    : publicProbeTemplate,
+                RestMethod = txtHttpRestMethod?.Text?.Trim() ?? "POST",
+                AdditionalHeaderName = txtHttpHeaderName?.Text?.Trim() ?? string.Empty,
+                AdditionalHeaderValue = txtHttpHeaderValue?.Text?.Trim() ?? string.Empty,
+                BearerToken = txtHttpBearerToken?.Text?.Trim() ?? string.Empty,
+                SkipTlsCertificateValidation = chkHttpSkipTlsValidation?.IsChecked == true
+            };
+        }
+
+        private HttpChallengeDeploymentMethod GetSelectedHttpDeploymentMethod()
+        {
+            if (cmbHttpDeploymentMethod?.SelectedItem is ComboBoxItem item && item.Tag is string raw)
+            {
+                return AcmeService.ParseHttpDeploymentMethod(raw);
+            }
+
+            return HttpChallengeDeploymentMethod.SelfHosted;
+        }
+
+        private bool IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod expected)
+        {
+            return GetSelectedHttpDeploymentMethod() == expected;
         }
 
         private void LoadDnsPlugins()
@@ -534,6 +623,7 @@ namespace ACMECertManager
                     Height = 34,
                     Margin = new Thickness(0, 0, 0, 12)
                 };
+                credentialCombo.ItemContainerStyle = (Style)FindResource("ReadableComboBoxItemStyle");
 
                 credentialCombo.Items.Add(new ComboBoxItem { Content = "(use new/custom credentials)" });
 
