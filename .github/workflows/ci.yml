@@ -1,4 +1,4 @@
-name: Build ACMECertManager
+name: CI
 
 permissions:
   contents: read
@@ -9,28 +9,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  build-and-test:
     runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup .NET 9 (minimum required)
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '9.0.x'
-
-    - name: Restore
-      run: dotnet restore
-
-    - name: Test
-      run: dotnet test --no-restore -c Debug
-
-  build:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        rid: [win-x86, win-x64, win-arm64]
     steps:
     - uses: actions/checkout@v4
 
@@ -43,25 +23,7 @@ jobs:
       run: dotnet restore
 
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore -c Debug
 
-    - name: Publish single .exe
-      run: dotnet publish src/ACMECertManager.csproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish
-
-    - name: Prepare release folder layout
-      shell: pwsh
-      run: |
-        $packageRoot = "package/ACMECertManager"
-        New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
-        Copy-Item -Path publish/* -Destination $packageRoot -Recurse -Force
-        New-Item -ItemType Directory -Force -Path "$packageRoot/plugins" | Out-Null
-        New-Item -ItemType Directory -Force -Path "$packageRoot/logs" | Out-Null
-        New-Item -ItemType Directory -Force -Path "$packageRoot/certs" | Out-Null
-        New-Item -ItemType Directory -Force -Path "$packageRoot/storage" | Out-Null
-        if (Test-Path "$packageRoot/acm.pdb") { Remove-Item "$packageRoot/acm.pdb" -Force }
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: acm-${{ matrix.rid }}
-        path: package/
+    - name: Test
+      run: dotnet test --no-build -c Debug

@@ -1,11 +1,12 @@
 # ACME Certificate Manager
 
 [![CI (.NET 10)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
+[![Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml)
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
 
 ## ✅ Quick Start (30 seconds)
-1. Download the latest architecture artifact from **Actions/Releases** (acm-win-x86, acm-win-x64, or acm-win-arm64)
+1. Download the latest package from **Releases** for your architecture (win-x86, win-x64, or win-arm64)
 2. Extract the package and run `acm.exe`
 3. Go to “Issue New Certificate” tab and click the big button
 
@@ -96,14 +97,44 @@ Certificate output and visibility:
 
 ## How to Get Your .exe (2 ways)
 
-**Way 1 – Easiest (GitHub Actions already built it)**
-- Go to **Actions** tab → click latest workflow → download your architecture artifact (`acm-win-x86`, `acm-win-x64`, `acm-win-arm64`)
+**Way 1 – Easiest (GitHub Release assets)**
+- Go to **Releases** and download the archive for your architecture:
+	- ACMECertManager-vX.Y.Z-win-x86.zip
+	- ACMECertManager-vX.Y.Z-win-x64.zip
+	- ACMECertManager-vX.Y.Z-win-arm64.zip
 
 **Way 2 – Build yourself**
 1. Install free **Visual Studio Code** with .NET 10 support (or install .NET SDK 10.0).
 2. Open `ACMECertManager.sln`
 3. Press **F5** to run immediately
 4. To create single .exe: right-click project → Publish → self-contained win-x64 → Publish
+
+## CI and Release Workflows
+- `.github/workflows/ci.yml`
+	- Runs on push to main and on pull requests.
+	- Validates restore, build, and tests only.
+	- Uses .NET 10.
+- `.github/workflows/release.yml`
+	- Runs only when a tag is pushed (format: vMAJOR.MINOR.PATCH).
+	- Builds release packages for win-x86, win-x64, and win-arm64.
+	- Publishes zipped assets to GitHub Releases.
+
+## Versioning and Release Process
+- Baseline project version is `1.0.0`.
+- Release workflow enforces SemVer tags in this format: `vMAJOR.MINOR.PATCH`.
+- The app version metadata is automatically set from the tag at release build time.
+
+Release steps:
+1. Update code and merge to main.
+2. Create and push a release tag, for example:
+	 - `git tag v1.0.0`
+	 - `git push origin v1.0.0`
+3. GitHub Actions runs the release workflow and publishes release assets.
+
+Version bump guidance:
+- Patch update (bug fixes): `v1.0.1`
+- Minor update (new backward-compatible features): `v1.1.0`
+- Major update (breaking changes): `v2.0.0`
 
 ## Security Tips
 - Production is the default. Use staging from advanced options when testing to avoid rate limits.
