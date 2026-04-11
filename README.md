@@ -26,6 +26,20 @@
 - Runtime folders auto-created next to the executable (plugins/, logs/, certs/, storage/)
 - Self-contained single .exe (runs on any Windows 10/11)
 
+## Screenshots
+
+### Manage Certificates
+![Manage Certificates](docs/screenshots/manage-certificates.png)
+
+### Issue New Certificate
+![Issue New Certificate](docs/screenshots/issue-new-certificate.png)
+
+### Logs
+![Logs](docs/screenshots/logs.png)
+
+### Settings
+![Settings](docs/screenshots/settings.png)
+
 ## Runtime Folder Layout
 At startup the app creates these folders beside the executable:
 - plugins/ for DNS plugin DLL files
