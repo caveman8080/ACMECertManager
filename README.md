@@ -2,6 +2,7 @@
 
 [![CI (.NET 10)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
 [![Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml)
+[![Channel Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml)
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
 
@@ -112,17 +113,27 @@ Certificate output and visibility:
 ## CI and Release Workflows
 - `.github/workflows/ci.yml`
 	- Runs on push to main and on pull requests.
+	- Guarded by paths: only runs when `src/**`, `tests/**`, `samples/**`, or `.github/workflows/**` changes.
 	- Validates restore, build, and tests only.
 	- Uses .NET 10.
 - `.github/workflows/release.yml`
 	- Runs only when a tag is pushed (format: vMAJOR.MINOR.PATCH).
 	- Builds release packages for win-x86, win-x64, and win-arm64.
 	- Publishes zipped assets to GitHub Releases.
+	- Publishes stable (non-prerelease) releases.
+- `.github/workflows/channel-release.yml`
+	- Runs on pushes to `develop` and `release/*` branches.
+	- Guarded by paths: only runs when `src/**` or `.github/workflows/**` changes.
+	- Builds release packages for win-x86, win-x64, and win-arm64.
+	- Publishes prerelease assets to GitHub Releases.
 
 ## Versioning and Release Process
 - Baseline project version is `1.0.0`.
-- Release workflow enforces SemVer tags in this format: `vMAJOR.MINOR.PATCH`.
-- The app version metadata is automatically set from the tag at release build time.
+- Stable release workflow enforces SemVer tags in this format: `vMAJOR.MINOR.PATCH`.
+- Channel workflow auto-generates prerelease tags from branch updates:
+	- `develop` -> `v1.0.0-alpha.<run>.<attempt>`
+	- `release/*` -> `v1.0.0-rc.<run>.<attempt>`
+- The app version metadata is automatically set by workflow at build time.
 
 Release steps:
 1. Update code and merge to main.
@@ -131,10 +142,19 @@ Release steps:
 	 - `git push origin v1.0.0`
 3. GitHub Actions runs the release workflow and publishes release assets.
 
+Channel prerelease steps:
+1. Push updates to `develop` for alpha builds, or `release/*` for RC builds.
+2. GitHub Actions automatically creates a prerelease with channel tag/version.
+
 Version bump guidance:
 - Patch update (bug fixes): `v1.0.1`
 - Minor update (new backward-compatible features): `v1.1.0`
 - Major update (breaking changes): `v2.0.0`
+
+## Contributing Notes
+- Docs-only changes (for example README or LICENSE updates) intentionally do not trigger CI.
+- CI runs only when code/test/sample/workflow paths change, based on workflow path guards.
+- If you need a full validation run for a docs PR, include a small relevant workflow change or run local checks before opening the PR.
 
 ## Security Tips
 - Production is the default. Use staging from advanced options when testing to avoid rate limits.
