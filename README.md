@@ -1,6 +1,8 @@
 # ACME Certificate Manager
 
 [![CI (.NET 10)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/caveman8080/ACMECertManager/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/github-code-scanning/codeql)
+[![Dependabot Updates](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates)
 [![Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml)
 [![Channel Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml)
 
