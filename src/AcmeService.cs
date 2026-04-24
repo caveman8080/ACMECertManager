@@ -96,7 +96,6 @@ namespace ACMECertManager
             AcmeContext acme;
 
             // Account bootstrap: load existing key if present, otherwise create a fresh account key.
-            IAccountContext account;
             if (File.Exists(RuntimePaths.AccountFile))
             {
                 log?.Invoke("[ACME] Loading existing account key...");
@@ -105,14 +104,14 @@ namespace ACMECertManager
 
                 // ACMEv2 servers may require explicit ToS agreement on newAccount.
                 // With an existing key this call safely returns the existing account if it already exists.
-                account = await acme.NewAccount(email, true);
+                await acme.NewAccount(email, true);
                 log?.Invoke("[ACME] Account key loaded and verified with ACME server");
             }
             else
             {
                 log?.Invoke("[ACME] Creating new ACME account...");
                 acme = new AcmeContext(new Uri(acmeUrl));
-                account = await acme.NewAccount(email, true);
+                await acme.NewAccount(email, true);
                 File.WriteAllText(RuntimePaths.AccountFile, acme.AccountKey.ToPem());
                 log?.Invoke("[ACME] New account created and persisted");
             }
