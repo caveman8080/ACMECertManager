@@ -1071,11 +1071,11 @@ namespace ACMECertManager
                     {
                         ctx = await _listener.GetContextAsync().ConfigureAwait(false);
                     }
-                    catch (ObjectDisposedException) when (!_running)
+                    catch (ObjectDisposedException)
                     {
                         break;
                     }
-                    catch (HttpListenerException) when (!_running)
+                    catch (HttpListenerException)
                     {
                         break;
                     }
