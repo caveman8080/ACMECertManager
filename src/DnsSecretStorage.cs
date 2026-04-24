@@ -28,17 +28,12 @@ namespace ACMECertManager
             set
             {
                 // When setting via old API, replace entire credentials list with single entry
-                if (value != null && value.Count > 0)
-                {
-                    Credentials = new List<DnsSecretCredential>
+                Credentials = value != null && value.Count > 0
+                    ? new List<DnsSecretCredential>
                     {
                         new DnsSecretCredential { Domain = string.Empty, Values = value }
-                    };
-                }
-                else
-                {
-                    Credentials = new List<DnsSecretCredential>();
-                }
+                    }
+                    : new List<DnsSecretCredential>();
             }
         }
     }
@@ -57,12 +52,9 @@ namespace ACMECertManager
             var entries = JsonSerializer.Deserialize<List<DnsSecretEntry>>(json) ?? new List<DnsSecretEntry>();
             
             // Ensure all entries have initialized Credentials lists
-            foreach (var entry in entries)
+            foreach (var entry in entries.Where(entry => entry.Credentials == null))
             {
-                if (entry.Credentials == null)
-                {
-                    entry.Credentials = new List<DnsSecretCredential>();
-                }
+                entry.Credentials = new List<DnsSecretCredential>();
             }
             
             return entries;

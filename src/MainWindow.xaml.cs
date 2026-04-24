@@ -22,7 +22,7 @@ namespace ACMECertManager
         private readonly Dictionary<string, TextBox> _dnsFieldInputs = new(StringComparer.OrdinalIgnoreCase);
         private LogManager? _logManager;
         private List<LoadedDnsPlugin> _availablePlugins = new();
-        private Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
         private bool _isSyncingNavSelection;
         private readonly Stack<string> _navigationHistory = new();
         private string _currentPageKey = "Manage";
@@ -754,30 +754,20 @@ namespace ACMECertManager
 
         private void PopulateDnsFieldsFromCredential(LoadedDnsPlugin plugin, IReadOnlyDictionary<string, string> credentials)
         {
-            foreach (var field in plugin.Instance.GetCredentialFields())
+            foreach (var field in plugin.Instance.GetCredentialFields().Where(field => _dnsFieldInputs.ContainsKey(field.Name)))
             {
-                if (_dnsFieldInputs.TryGetValue(field.Name, out var input))
-                {
-                    if (credentials.TryGetValue(field.Name, out var value))
-                    {
-                        input.Text = value;
-                    }
-                    else
-                    {
-                        input.Text = string.Empty;
-                    }
-                }
+                var input = _dnsFieldInputs[field.Name];
+                input.Text = credentials.TryGetValue(field.Name, out var value)
+                    ? value
+                    : string.Empty;
             }
         }
 
         private void ClearDnsFields(LoadedDnsPlugin plugin)
         {
-            foreach (var field in plugin.Instance.GetCredentialFields())
+            foreach (var field in plugin.Instance.GetCredentialFields().Where(field => _dnsFieldInputs.ContainsKey(field.Name)))
             {
-                if (_dnsFieldInputs.TryGetValue(field.Name, out var input))
-                {
-                    input.Text = string.Empty;
-                }
+                _dnsFieldInputs[field.Name].Text = string.Empty;
             }
         }
 

@@ -790,12 +790,14 @@ namespace ACMECertManager
                 {
                     var authzResource = await authz.Resource();
                     var authzPart = $"Authorization '{authzResource.Identifier?.Value}' status: {authzResource.Status}.";
-                    var invalidChallenge = authzResource.Challenges?
-                        .FirstOrDefault(c => c.Status == ChallengeStatus.Invalid && c.Error is not null);
+                    var invalidChallengeError = authzResource.Challenges?
+                        .Where(c => c.Status == ChallengeStatus.Invalid && c.Error is not null)
+                        .Select(c => c.Error)
+                        .FirstOrDefault();
 
-                    if (invalidChallenge?.Error is not null)
+                    if (invalidChallengeError is not null)
                     {
-                        authzPart += $" Challenge error: {FormatAcmeError(invalidChallenge.Error)}";
+                        authzPart += $" Challenge error: {FormatAcmeError(invalidChallengeError)}";
                     }
 
                     parts.Add(authzPart);

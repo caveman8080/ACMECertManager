@@ -8,8 +8,8 @@ namespace ACMECertManager
 {
     public partial class DnsSecretsWindow : Window
     {
-        private List<LoadedDnsPlugin> _availablePlugins = new();
-        private Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<LoadedDnsPlugin> _availablePlugins;
+        private readonly Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields;
         private string _selectedPluginId = string.Empty;
 
         public DnsSecretsWindow(List<LoadedDnsPlugin> availablePlugins, Dictionary<string, IReadOnlyList<DnsCredentialField>> pluginFields)
@@ -25,12 +25,11 @@ namespace ACMECertManager
             lstPlugins.Items.Clear();
             var allSecrets = DnsSecretStorage.LoadAll();
             
-            foreach (var entry in allSecrets.OrderBy(e => e.PluginId, StringComparer.OrdinalIgnoreCase))
+            foreach (var entry in allSecrets
+                .Where(entry => entry.Credentials.Count > 0)
+                .OrderBy(entry => entry.PluginId, StringComparer.OrdinalIgnoreCase))
             {
-                if (entry.Credentials.Count > 0)
-                {
-                    lstPlugins.Items.Add(entry.PluginId);
-                }
+                lstPlugins.Items.Add(entry.PluginId);
             }
 
             if (lstPlugins.Items.Count > 0)

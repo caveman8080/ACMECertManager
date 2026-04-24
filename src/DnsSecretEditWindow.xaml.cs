@@ -120,15 +120,13 @@ namespace ACMECertManager
 
                 // Collect credentials
                 Credentials.Clear();
-                foreach (var field in _fields)
+                foreach (var field in _fields.Where(field => _credentialInputs.ContainsKey(field.Name)))
                 {
-                    if (_credentialInputs.TryGetValue(field.Name, out var input))
+                    var input = _credentialInputs[field.Name];
+                    var value = input.Text?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(value))
                     {
-                        var value = input.Text?.Trim() ?? string.Empty;
-                        if (!string.IsNullOrEmpty(value))
-                        {
-                            Credentials[field.Name] = value;
-                        }
+                        Credentials[field.Name] = value;
                     }
                 }
 
