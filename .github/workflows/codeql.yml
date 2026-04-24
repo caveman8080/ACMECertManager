@@ -1,0 +1,58 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "22 3 * * 0"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            runner: windows-latest
+            build-mode: manual
+          - language: actions
+            runner: ubuntu-latest
+            build-mode: none
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended,security-and-quality
+
+      - name: Setup .NET 10 for C# build
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore (C#)
+        if: matrix.language == 'csharp'
+        run: dotnet restore
+
+      - name: Build (C#)
+        if: matrix.language == 'csharp'
+        run: dotnet build --no-restore -c Debug
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
