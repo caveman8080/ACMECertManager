@@ -91,7 +91,7 @@ namespace ACMECertManager
                 var httpMethod = httpDeployment?.Method ?? HttpChallengeDeploymentMethod.SelfHosted;
                 log?.Invoke($"[HTTP-01] Deployment Method: {httpMethod}");
             }
-            log?.Invoke($"[ACME] Account Email: {email}");
+            log?.Invoke("[ACME] Account email configured");
 
             AcmeContext acme;
 
