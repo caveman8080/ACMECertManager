@@ -30,7 +30,7 @@ namespace ACMECertManager
                 throw new ArgumentException("Max log file size must be greater than 0.", nameof(maxLogFileSizeMb));
 
             _logsDirectory = logsDirectory;
-            _logFilePath = Path.Combine(logsDirectory, "acm.log");
+            _logFilePath = Path.Join(logsDirectory, "acm.log");
             _maxLogFileSizeBytes = maxLogFileSizeMb * 1024 * 1024;
 
             EnsureLogsDirectory();
@@ -237,14 +237,14 @@ namespace ACMECertManager
 
                 // Generate archive filename with timestamp
                 var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                var archivePath = Path.Combine(_logsDirectory, $"acm_{timestamp}.log");
+                var archivePath = Path.Join(_logsDirectory, $"acm_{timestamp}.log");
 
                 // Rename current log to archive
                 if (File.Exists(archivePath))
                 {
                     // If archive already exists, append to its name
                     var counter = 1;
-                    var basePath = Path.Combine(_logsDirectory, $"acm_{timestamp}_");
+                    var basePath = Path.Join(_logsDirectory, $"acm_{timestamp}_");
                     while (File.Exists($"{basePath}{counter}.log"))
                         counter++;
                     archivePath = $"{basePath}{counter}.log";

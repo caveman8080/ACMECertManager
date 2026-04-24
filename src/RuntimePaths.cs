@@ -7,16 +7,16 @@ namespace ACMECertManager
     internal static class RuntimePaths
     {
         public static string BaseDirectory => AppContext.BaseDirectory;
-        public static string PluginsDirectory => Path.Combine(BaseDirectory, "plugins");
-        public static string LogsDirectory => Path.Combine(BaseDirectory, "logs");
-        public static string CertsDirectory => Path.Combine(BaseDirectory, "certs");
-        public static string StorageDirectory => Path.Combine(BaseDirectory, "storage");
+        public static string PluginsDirectory => Path.Join(BaseDirectory, "plugins");
+        public static string LogsDirectory => Path.Join(BaseDirectory, "logs");
+        public static string CertsDirectory => Path.Join(BaseDirectory, "certs");
+        public static string StorageDirectory => Path.Join(BaseDirectory, "storage");
 
-        public static string LogFile => Path.Combine(LogsDirectory, "acm.log");
-        public static string AccountFile => Path.Combine(StorageDirectory, "acme-account.json");
-        public static string CertificatesFile => Path.Combine(StorageDirectory, "certificates.json");
-        public static string ThemeSettingsFile => Path.Combine(StorageDirectory, "ui-settings.json");
-        public static string DnsSecretsFile => Path.Combine(StorageDirectory, "dns-secrets.json");
+        public static string LogFile => Path.Join(LogsDirectory, "acm.log");
+        public static string AccountFile => Path.Join(StorageDirectory, "acme-account.json");
+        public static string CertificatesFile => Path.Join(StorageDirectory, "certificates.json");
+        public static string ThemeSettingsFile => Path.Join(StorageDirectory, "ui-settings.json");
+        public static string DnsSecretsFile => Path.Join(StorageDirectory, "dns-secrets.json");
 
         public static void EnsureRequiredDirectories()
         {
@@ -40,7 +40,7 @@ namespace ACMECertManager
 
         private static void TryMigrateLegacyFile(string legacyFileName, string targetPath, List<string> migrated)
         {
-            var legacyPath = Path.Combine(BaseDirectory, legacyFileName);
+            var legacyPath = Path.Join(BaseDirectory, legacyFileName);
 
             if (!File.Exists(legacyPath))
             {

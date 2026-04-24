@@ -121,10 +121,10 @@ public sealed class StorageAndModelTests
     [Fact]
     public void CertificateStorage_SaveThenLoad_RoundTripsCertificates()
     {
-        var storageDirectory = Path.Combine(AppContext.BaseDirectory, "storage");
+        var storageDirectory = Path.Join(AppContext.BaseDirectory, "storage");
         Directory.CreateDirectory(storageDirectory);
 
-        var certificatesPath = Path.Combine(storageDirectory, "certificates.json");
+        var certificatesPath = Path.Join(storageDirectory, "certificates.json");
         var backup = File.Exists(certificatesPath) ? File.ReadAllText(certificatesPath) : null;
 
         try

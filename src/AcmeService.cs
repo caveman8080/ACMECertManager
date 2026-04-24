@@ -236,7 +236,7 @@ namespace ACMECertManager
                     log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
                 }
 
-                pfxPath = Path.Combine(certificateOutputDirectory, "certificate.pfx");
+                pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
                 log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
                 File.WriteAllBytes(pfxPath, pfxBytes);
                 log?.Invoke("[CERT] PFX file saved successfully");
@@ -318,7 +318,7 @@ namespace ACMECertManager
                 case HttpChallengeDeploymentMethod.NetworkPath:
                     EnsureRequiredTarget(options.Target, "network path");
                     System.IO.Directory.CreateDirectory(options.Target);
-                    var path = Path.Combine(options.Target, token);
+                    var path = Path.Join(options.Target, token);
                     await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine);
                     log?.Invoke($"[HTTP-01] Challenge file written to network/local path: {path}");
                     return path;
@@ -836,10 +836,10 @@ namespace ACMECertManager
                 certificates.Add(leafCertificatePem);
             }
 
-            var certPemPath = Path.Combine(outputDirectory, "cert.pem");
-            var chainPemPath = Path.Combine(outputDirectory, "chain.pem");
-            var fullchainPemPath = Path.Combine(outputDirectory, "fullchain.pem");
-            var keyPemPath = Path.Combine(outputDirectory, "privkey.pem");
+            var certPemPath = Path.Join(outputDirectory, "cert.pem");
+            var chainPemPath = Path.Join(outputDirectory, "chain.pem");
+            var fullchainPemPath = Path.Join(outputDirectory, "fullchain.pem");
+            var keyPemPath = Path.Join(outputDirectory, "privkey.pem");
 
             File.WriteAllText(certPemPath, leafCertificatePem.Trim() + Environment.NewLine);
             File.WriteAllText(fullchainPemPath, string.Join(Environment.NewLine + Environment.NewLine, certificates) + Environment.NewLine);
@@ -884,7 +884,7 @@ namespace ACMECertManager
                 sanitized += "_cert";
             }
 
-            return Path.Combine(RuntimePaths.CertsDirectory, sanitized);
+            return Path.Join(RuntimePaths.CertsDirectory, sanitized);
         }
 
         private readonly record struct PemArtifactPaths(
