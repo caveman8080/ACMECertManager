@@ -58,7 +58,15 @@ namespace ACMECertManager
 
                     File.AppendAllText(_logFilePath, formattedMessage + Environment.NewLine);
                 }
-                catch
+                catch (IOException)
+                {
+                    // Silently fail if logging fails - don't interrupt app flow
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Silently fail if logging fails - don't interrupt app flow
+                }
+                catch (System.Security.SecurityException)
                 {
                     // Silently fail if logging fails - don't interrupt app flow
                 }
@@ -80,7 +88,15 @@ namespace ACMECertManager
                         return fileInfo.Length;
                     }
                 }
-                catch
+                catch (IOException)
+                {
+                    // Return 0 if we can't determine size
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Return 0 if we can't determine size
+                }
+                catch (System.Security.SecurityException)
                 {
                     // Return 0 if we can't determine size
                 }
@@ -105,7 +121,15 @@ namespace ACMECertManager
                     Array.Sort(files, (a, b) => File.GetLastWriteTime(b).CompareTo(File.GetLastWriteTime(a)));
                     return files;
                 }
-                catch
+                catch (IOException)
+                {
+                    return Array.Empty<string>();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Array.Empty<string>();
+                }
+                catch (System.Security.SecurityException)
                 {
                     return Array.Empty<string>();
                 }
@@ -148,13 +172,29 @@ namespace ACMECertManager
                             writer.Write(reader.ReadToEnd());
                             writer.WriteLine();
                         }
-                        catch
+                        catch (IOException)
+                        {
+                            writer.WriteLine($"[ERROR] Could not read {logFile}");
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            writer.WriteLine($"[ERROR] Could not read {logFile}");
+                        }
+                        catch (System.Security.SecurityException)
                         {
                             writer.WriteLine($"[ERROR] Could not read {logFile}");
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (IOException ex)
+                {
+                    throw new InvalidOperationException($"Failed to export logs: {ex.Message}", ex);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    throw new InvalidOperationException($"Failed to export logs: {ex.Message}", ex);
+                }
+                catch (System.Security.SecurityException ex)
                 {
                     throw new InvalidOperationException($"Failed to export logs: {ex.Message}", ex);
                 }
@@ -177,13 +217,29 @@ namespace ACMECertManager
                         {
                             File.Delete(logFile);
                         }
-                        catch
+                        catch (IOException)
+                        {
+                            // Skip files that can't be deleted
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            // Skip files that can't be deleted
+                        }
+                        catch (System.Security.SecurityException)
                         {
                             // Skip files that can't be deleted
                         }
                     }
                 }
-                catch
+                catch (IOException)
+                {
+                    // Silently fail
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Silently fail
+                }
+                catch (System.Security.SecurityException)
                 {
                     // Silently fail
                 }
@@ -209,7 +265,15 @@ namespace ACMECertManager
                             var fileInfo = new FileInfo(logFile);
                             totalSize += fileInfo.Length;
                         }
-                        catch
+                        catch (IOException)
+                        {
+                            // Skip files that can't be accessed
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            // Skip files that can't be accessed
+                        }
+                        catch (System.Security.SecurityException)
                         {
                             // Skip files that can't be accessed
                         }
@@ -217,7 +281,15 @@ namespace ACMECertManager
 
                     return (logFiles.Length, totalSize);
                 }
-                catch
+                catch (IOException)
+                {
+                    return (0, 0);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return (0, 0);
+                }
+                catch (System.Security.SecurityException)
                 {
                     return (0, 0);
                 }
@@ -255,7 +327,15 @@ namespace ACMECertManager
                 // Cleanup old archives if needed (keep last 10 archives)
                 CleanupOldLogs();
             }
-            catch
+            catch (IOException)
+            {
+                // Silently fail if rotation fails
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Silently fail if rotation fails
+            }
+            catch (System.Security.SecurityException)
             {
                 // Silently fail if rotation fails
             }
@@ -277,14 +357,30 @@ namespace ACMECertManager
                         {
                             File.Delete(logFiles[i]);
                         }
-                        catch
+                        catch (IOException)
+                        {
+                            // Skip files that can't be deleted
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            // Skip files that can't be deleted
+                        }
+                        catch (System.Security.SecurityException)
                         {
                             // Skip files that can't be deleted
                         }
                     }
                 }
             }
-            catch
+            catch (IOException)
+            {
+                // Silently fail
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Silently fail
+            }
+            catch (System.Security.SecurityException)
             {
                 // Silently fail
             }
@@ -296,7 +392,15 @@ namespace ACMECertManager
             {
                 Directory.CreateDirectory(_logsDirectory);
             }
-            catch
+            catch (IOException)
+            {
+                // Directory might already exist or be inaccessible, but we'll try to write anyway
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Directory might already exist or be inaccessible, but we'll try to write anyway
+            }
+            catch (System.Security.SecurityException)
             {
                 // Directory might already exist or be inaccessible, but we'll try to write anyway
             }

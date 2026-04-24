@@ -791,9 +791,8 @@ namespace ACMECertManager
                     var authzResource = await authz.Resource();
                     var authzPart = $"Authorization '{authzResource.Identifier?.Value}' status: {authzResource.Status}.";
                     var invalidChallengeError = authzResource.Challenges?
-                        .Where(c => c.Status == ChallengeStatus.Invalid && c.Error is not null)
-                        .Select(c => c.Error)
-                        .FirstOrDefault();
+                        .Select(challenge => challenge.Status == ChallengeStatus.Invalid ? challenge.Error : null)
+                        .FirstOrDefault(error => error is not null);
 
                     if (invalidChallengeError is not null)
                     {

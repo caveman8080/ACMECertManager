@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
@@ -72,7 +73,7 @@ namespace ACMECertManager
             {
                 _logManager?.WriteLog(message);
             }
-            catch
+            catch (ObjectDisposedException)
             {
                 // Keep running if persistent logging fails
             }
@@ -161,7 +162,42 @@ namespace ACMECertManager
                     : $"PEM files saved in:\n{cert.OutputDirectory}";
                 MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", MessageBoxButton.OK, MessageBoxImage.Information);
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (ArgumentException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (TaskCanceledException ex)
             {
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -208,7 +244,12 @@ namespace ACMECertManager
             {
                 Log("Administrator relaunch canceled by user.");
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"Failed to re-launch as Administrator: {ex.Message}");
+                MessageBox.Show(ex.Message, "Elevation Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (Win32Exception ex)
             {
                 Log($"Failed to re-launch as Administrator: {ex.Message}");
                 MessageBox.Show(ex.Message, "Elevation Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -433,7 +474,17 @@ namespace ACMECertManager
                 LoadCertificatesGrid();
                 Log($"🗑 Deleted local certificate for {cert.Domain}");
             }
-            catch (Exception ex)
+            catch (IOException ex)
+            {
+                Log($"❌ Delete failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Delete failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.SecurityException ex)
             {
                 Log($"❌ Delete failed: {ex.Message}");
                 MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -804,7 +855,27 @@ namespace ACMECertManager
                 LoadCertificatesGrid();
                 Log($"✅ Revoked {cert.Domain}");
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Revoke failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Revoke Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Revoke failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Revoke Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log($"❌ Revoke failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Revoke Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (TaskCanceledException ex)
+            {
+                Log($"❌ Revoke failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Revoke Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
             {
                 Log($"❌ Revoke failed: {ex.Message}");
                 MessageBox.Show(ex.Message, "Revoke Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -881,7 +952,15 @@ namespace ACMECertManager
                         var content = File.ReadAllText(logFiles[0]);
                         sb.Append(content);
                     }
-                    catch
+                    catch (IOException)
+                    {
+                        // Skip if we can't read
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Skip if we can't read
+                    }
+                    catch (System.Security.SecurityException)
                     {
                         // Skip if we can't read
                     }
@@ -895,7 +974,15 @@ namespace ACMECertManager
 
                 UpdateLogStatistics();
             }
-            catch
+            catch (IOException)
+            {
+                // Silently fail if we can't load persisted logs
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Silently fail if we can't load persisted logs
+            }
+            catch (System.Security.SecurityException)
             {
                 // Silently fail if we can't load persisted logs
             }
@@ -914,7 +1001,15 @@ namespace ACMECertManager
 
                 txtLogStats.Text = $"📊 Total: {totalSize:N0} bytes ({sizeMb:F2} MB) | Current: {currentSizeMb:F2} MB | Files: {fileCount}";
             }
-            catch
+            catch (IOException)
+            {
+                // Silently fail
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Silently fail
+            }
+            catch (ObjectDisposedException)
             {
                 // Silently fail
             }
@@ -944,7 +1039,17 @@ namespace ACMECertManager
                     MessageBox.Show($"Logs exported successfully to:\n{dialog.FileName}", "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Failed to export logs: {ex.Message}");
+                MessageBox.Show($"Failed to export logs: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Failed to export logs: {ex.Message}");
+                MessageBox.Show($"Failed to export logs: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
             {
                 Log($"❌ Failed to export logs: {ex.Message}");
                 MessageBox.Show($"Failed to export logs: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -975,7 +1080,17 @@ namespace ACMECertManager
                     Log("✅ All logs cleared");
                 }
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Failed to clear logs: {ex.Message}");
+                MessageBox.Show($"Failed to clear logs: {ex.Message}", "Clear Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Failed to clear logs: {ex.Message}");
+                MessageBox.Show($"Failed to clear logs: {ex.Message}", "Clear Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
             {
                 Log($"❌ Failed to clear logs: {ex.Message}");
                 MessageBox.Show($"Failed to clear logs: {ex.Message}", "Clear Error", MessageBoxButton.OK, MessageBoxImage.Error);
