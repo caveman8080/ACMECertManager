@@ -844,9 +844,9 @@ namespace ACMECertManager
 
                 return string.Join(" ", parts);
             }
-            catch
+            catch (Exception ex)
             {
-                return "Unable to fetch detailed order diagnostics from ACME server.";
+                return $"Unable to fetch detailed order diagnostics from ACME server. Reason: {ex.Message}";
             }
         }
 
