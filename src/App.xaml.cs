@@ -91,7 +91,15 @@ namespace ACMECertManager
 
                 return false;
             }
-            catch
+            catch (System.Security.SecurityException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+            catch (IOException)
             {
                 return false;
             }
@@ -120,7 +128,19 @@ namespace ACMECertManager
 
                 return settings;
             }
-            catch
+            catch (IOException)
+            {
+                return new ThemeSettings();
+            }
+            catch (JsonException)
+            {
+                return new ThemeSettings();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return new ThemeSettings();
+            }
+            catch (System.Security.SecurityException)
             {
                 return new ThemeSettings();
             }
@@ -137,7 +157,15 @@ namespace ACMECertManager
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(RuntimePaths.ThemeSettingsFile, json);
             }
-            catch
+            catch (IOException)
+            {
+                // Keep running even if theme settings cannot be written.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Keep running even if theme settings cannot be written.
+            }
+            catch (System.Security.SecurityException)
             {
                 // Keep running even if theme settings cannot be written.
             }

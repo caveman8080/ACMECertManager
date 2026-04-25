@@ -99,12 +99,28 @@ namespace ACMECertManager
                         });
                     }
                 }
+                catch (BadImageFormatException ex)
+                {
+                    result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {ex.Message}");
+                }
+                catch (FileLoadException ex)
+                {
+                    result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {ex.Message}");
+                }
+                catch (TypeInitializationException ex)
+                {
+                    result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {ex.Message}");
+                }
                 catch (ReflectionTypeLoadException ex)
                 {
                     var loaderError = string.Join(" | ", ex.LoaderExceptions.Where(e => e is not null).Select(e => e!.Message));
                     result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {loaderError}");
                 }
-                catch (Exception ex)
+                catch (NotSupportedException ex)
+                {
+                    result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {ex.Message}");
+                }
+                catch (IOException ex)
                 {
                     result.Warnings.Add($"Failed to load plugin assembly {Path.GetFileName(dllPath)}: {ex.Message}");
                 }

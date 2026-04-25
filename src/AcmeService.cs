@@ -179,7 +179,19 @@ namespace ACMECertManager
                         await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
                         log?.Invoke("[DNS-01] DNS cleanup completed");
                     }
-                    catch (Exception ex)
+                    catch (HttpRequestException ex)
+                    {
+                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                    }
+                    catch (IOException ex)
+                    {
+                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                    }
+                    catch (System.Security.SecurityException ex)
                     {
                         log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
                     }
@@ -299,7 +311,19 @@ namespace ACMECertManager
                 {
                     await CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log);
                 }
-                catch (Exception ex)
+                catch (HttpRequestException ex)
+                {
+                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
+                }
+                catch (IOException ex)
+                {
+                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
+                }
+                catch (System.Security.SecurityException ex)
                 {
                     log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
                 }
@@ -499,7 +523,23 @@ namespace ACMECertManager
                     log?.Invoke($"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}");
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+            catch (TaskCanceledException ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+            catch (IOException ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+            catch (System.Security.SecurityException ex)
             {
                 log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
             }
