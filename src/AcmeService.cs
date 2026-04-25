@@ -826,9 +826,9 @@ namespace ACMECertManager
                 }
 
                 var authorizations = await order.Authorizations();
-                foreach (var authz in authorizations)
+                var authorizationResources = await Task.WhenAll(authorizations.Select(authz => authz.Resource()));
+                foreach (var authzResource in authorizationResources)
                 {
-                    var authzResource = await authz.Resource();
                     var authzPart = $"Authorization '{authzResource.Identifier?.Value}' status: {authzResource.Status}.";
                     var invalidChallengeError = authzResource.Challenges?
                         .Select(challenge => challenge.Status == ChallengeStatus.Invalid ? challenge.Error : null)
