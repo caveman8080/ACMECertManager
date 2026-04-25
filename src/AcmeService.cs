@@ -844,7 +844,12 @@ namespace ACMECertManager
 
                 return string.Join(" ", parts);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (
+                ex is AcmeRequestException ||
+                ex is HttpRequestException ||
+                ex is IOException ||
+                ex is CryptographicException ||
+                ex is InvalidOperationException)
             {
                 return $"Unable to fetch detailed order diagnostics from ACME server. Reason: {ex.Message}";
             }
