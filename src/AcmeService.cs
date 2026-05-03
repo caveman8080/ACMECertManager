@@ -9,8 +9,11 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Authentication;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -23,6 +26,7 @@ namespace ACMECertManager
     public enum ChallengeValidationMethod
     {
         Http01,
+        TlsAlpn01,
         Dns01
     }
 
@@ -91,6 +95,10 @@ namespace ACMECertManager
                 var httpMethod = httpDeployment?.Method ?? HttpChallengeDeploymentMethod.SelfHosted;
                 log?.Invoke($"[HTTP-01] Deployment Method: {httpMethod}");
             }
+            else if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
+            {
+                log?.Invoke("[TLS-ALPN-01] Self-hosted listener will bind to port 443");
+            }
             log?.Invoke("[ACME] Account email configured");
 
             AcmeContext acme;
@@ -131,6 +139,20 @@ namespace ACMECertManager
                     var challenge = await authz.Http();
                     var httpIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
                     await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log);
+                    continue;
+                }
+
+                if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
+                {
+                    var challenge = await authz.TlsAlpn();
+                    var tlsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
+                    if (challenge is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"TLS-ALPN-01 challenge is not available for '{tlsIdentifier}' from this ACME server.");
+                    }
+
+                    await HandleTlsAuthorizationAsync(challenge, authz, tlsIdentifier, log);
                     continue;
                 }
 
@@ -267,8 +289,67 @@ namespace ACMECertManager
                 FullChainPemPath = pemPaths.FullChainPemPath,
                 PrivateKeyPemPath = pemPaths.KeyPemPath,
                 AcmeDirectoryUrl = acmeUrl,
-                ValidationMethod = validationMethod == ChallengeValidationMethod.Http01 ? "HTTP-01" : "DNS-01"
+                ValidationMethod = FormatValidationMethod(validationMethod)
             };
+        }
+
+        internal static string FormatValidationMethod(ChallengeValidationMethod validationMethod)
+        {
+            return validationMethod switch
+            {
+                ChallengeValidationMethod.Http01 => "HTTP-01",
+                ChallengeValidationMethod.TlsAlpn01 => "TLS-ALPN-01",
+                _ => "DNS-01"
+            };
+        }
+
+        private static async Task HandleTlsAuthorizationAsync(
+            IChallengeContext challenge,
+            IAuthorizationContext authz,
+            string identifier,
+            Action<string>? log)
+        {
+            log?.Invoke("[TLS-ALPN-01] Starting temporary TLS challenge server on port 443...");
+            using var challengeCertificate = CreateTlsAlpnChallengeCertificate(identifier, challenge.KeyAuthz);
+            using var server = new TlsAlpnChallengeServer(challengeCertificate);
+            server.Start();
+
+            log?.Invoke("[TLS-ALPN-01] TLS challenge server started, sending challenge validation request...");
+            await challenge.Validate();
+            log?.Invoke("[TLS-ALPN-01] Waiting for ACME server to verify challenge...");
+            await WaitForAuthorizationValidAsync(authz);
+            log?.Invoke("[TLS-ALPN-01] Challenge validated successfully, stopping server...");
+            server.Stop();
+            log?.Invoke("[TLS-ALPN-01] TLS-ALPN challenge completed");
+        }
+
+        private static X509Certificate2 CreateTlsAlpnChallengeCertificate(string domain, string keyAuthorization)
+        {
+            var keyAuthorizationHash = SHA256.HashData(Encoding.UTF8.GetBytes(keyAuthorization));
+            var acmeIdentifierExtensionBytes = new byte[2 + keyAuthorizationHash.Length];
+            acmeIdentifierExtensionBytes[0] = 0x04;
+            acmeIdentifierExtensionBytes[1] = (byte)keyAuthorizationHash.Length;
+            Buffer.BlockCopy(keyAuthorizationHash, 0, acmeIdentifierExtensionBytes, 2, keyAuthorizationHash.Length);
+
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request = new CertificateRequest($"CN={domain}", ecdsa, HashAlgorithmName.SHA256);
+            var subjectAlternativeNames = new SubjectAlternativeNameBuilder();
+            subjectAlternativeNames.AddDnsName(domain);
+
+            request.CertificateExtensions.Add(subjectAlternativeNames.Build());
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+            request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.1.31", acmeIdentifierExtensionBytes, true));
+
+            var notBefore = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var notAfter = DateTimeOffset.UtcNow.AddHours(6);
+            using var issued = request.CreateSelfSigned(notBefore, notAfter);
+            var exported = issued.Export(X509ContentType.Pfx);
+
+            return X509CertificateLoader.LoadPkcs12(
+                exported,
+                (string?)null,
+                X509KeyStorageFlags.EphemeralKeySet);
         }
 
         private static async Task HandleHttpAuthorizationAsync(
@@ -1175,6 +1256,144 @@ namespace ACMECertManager
             }
 
             _listener.Close();
+            _disposed = true;
+        }
+    }
+
+    // Tiny built-in TLS server for TLS-ALPN-01 (runs only during validation)
+    public class TlsAlpnChallengeServer : IDisposable
+    {
+        private static readonly SslApplicationProtocol AcmeTlsProtocol = new("acme-tls/1");
+
+        private readonly TcpListener _listener = new(IPAddress.Any, 443);
+        private readonly X509Certificate2 _certificate;
+        private bool _running;
+        private bool _disposed;
+        private Task? _listenerTask;
+
+        public TlsAlpnChallengeServer(X509Certificate2 certificate)
+        {
+            _certificate = certificate;
+        }
+
+        public void Start()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(TlsAlpnChallengeServer));
+            }
+
+            if (_running)
+            {
+                return;
+            }
+
+            _running = true;
+            try
+            {
+                _listener.Start();
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AccessDenied)
+            {
+                _running = false;
+                throw new InvalidOperationException(
+                    "TLS-ALPN-01 validation requires binding to port 443, but access was denied. " +
+                    "Run ACMECertManager as Administrator and ensure no other process is already listening on port 443.", ex);
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                _running = false;
+                throw new InvalidOperationException(
+                    "TLS-ALPN-01 validation requires port 443, but the port is already in use by another process.", ex);
+            }
+
+            _listenerTask = Task.Run(async () =>
+            {
+                while (_running)
+                {
+                    TcpClient? client = null;
+                    try
+                    {
+                        client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (SocketException)
+                    {
+                        break;
+                    }
+
+                    _ = HandleClientAsync(client);
+                }
+            });
+        }
+
+        private async Task HandleClientAsync(TcpClient client)
+        {
+            using (client)
+            {
+                try
+                {
+                    using var ssl = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
+                    var options = new SslServerAuthenticationOptions
+                    {
+                        ServerCertificate = _certificate,
+                        EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                        ClientCertificateRequired = false,
+                        CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                        ApplicationProtocols = new List<SslApplicationProtocol> { AcmeTlsProtocol }
+                    };
+
+                    await ssl.AuthenticateAsServerAsync(options, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (AuthenticationException)
+                {
+                    // ACME clients may reconnect or abort while probing; no-op.
+                }
+                catch (IOException)
+                {
+                    // Ignore client disconnects during challenge probing.
+                }
+            }
+        }
+
+        public void Stop() => Dispose();
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _running = false;
+
+            try
+            {
+                _listener.Stop();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Listener already disposed.
+            }
+
+            try
+            {
+                _listenerTask?.GetAwaiter().GetResult();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Expected while tearing down pending accepts.
+            }
+            catch (SocketException)
+            {
+                // Expected while tearing down pending accepts.
+            }
+
+            _listener.Server.Dispose();
+            _certificate.Dispose();
             _disposed = true;
         }
     }
