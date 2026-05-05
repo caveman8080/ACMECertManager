@@ -98,6 +98,13 @@ namespace ACMECertManager
                     : rbTls.IsChecked == true
                         ? ChallengeValidationMethod.TlsAlpn01
                         : ChallengeValidationMethod.Http01;
+
+                if (validationMethod == ChallengeValidationMethod.TlsAlpn01 &&
+                    domains.Any(d => d.StartsWith("*.", StringComparison.Ordinal)))
+                {
+                    throw new InvalidOperationException("TLS-ALPN-01 cannot be used for wildcard domains. Please choose DNS validation for names such as *.example.com.");
+                }
+
                 var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
