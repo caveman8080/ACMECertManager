@@ -285,11 +285,6 @@ namespace ACMECertManager
 
         private bool RequiresElevationForSelectedValidation()
         {
-            if (rbTls?.IsChecked == true)
-            {
-                return true;
-            }
-
             return rbHttp?.IsChecked == true && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted);
         }
 
