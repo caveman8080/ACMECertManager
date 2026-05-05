@@ -93,7 +93,18 @@ namespace ACMECertManager
                 if (string.IsNullOrEmpty(email)) throw new Exception("Email required");
 
                 var acmeUrl = ResolveAcmeDirectoryUrl();
-                var validationMethod = rbDns.IsChecked == true ? ChallengeValidationMethod.Dns01 : ChallengeValidationMethod.Http01;
+                var validationMethod = rbDns.IsChecked == true
+                    ? ChallengeValidationMethod.Dns01
+                    : rbTls.IsChecked == true
+                        ? ChallengeValidationMethod.TlsAlpn01
+                        : ChallengeValidationMethod.Http01;
+
+                var hasWildcardDomain = domains.Any(d => d.StartsWith("*.", StringComparison.Ordinal));
+                if (hasWildcardDomain && validationMethod != ChallengeValidationMethod.Dns01)
+                {
+                    throw new InvalidOperationException("Wildcard domains can only be used with DNS validation. Please choose DNS validation for names such as *.example.com.");
+                }
+
                 var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
 
@@ -262,7 +273,14 @@ namespace ACMECertManager
 
         private void UpdateAdminRelaunchVisibility()
         {
-            txtRelaunchAsAdmin.Visibility = IsRunningAsAdministrator() ? Visibility.Collapsed : Visibility.Visible;
+            if (txtRelaunchAsAdmin is null)
+            {
+                return;
+            }
+
+            txtRelaunchAsAdmin.Visibility = IsRunningAsAdministrator() || !RequiresElevationForSelectedValidation()
+                ? Visibility.Collapsed
+                : Visibility.Visible;
         }
 
         private static bool IsRunningAsAdministrator()
@@ -270,6 +288,17 @@ namespace ACMECertManager
             using var identity = WindowsIdentity.GetCurrent();
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+
+        private bool RequiresElevationForSelectedValidation()
+        {
+            // Self-hosted HTTP-01 always requires binding to port 80 via HttpListener, which needs
+            // URL ACL reservation and therefore admin rights on Windows.
+            // TLS-ALPN-01 uses a raw TcpListener on port 443, which normally succeeds without
+            // elevation, but can be denied on some Windows configurations; surface the prompt as
+            // a hint in case the user encounters a port-bind failure.
+            return (rbHttp?.IsChecked == true && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted))
+                || rbTls?.IsChecked == true;
         }
 
         private void NavPrimaryMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -380,7 +409,7 @@ namespace ACMECertManager
                     pageToShow = IssuePage;
                     SetSectionHeader(
                         "Issue New Certificate",
-                        "Create a new certificate with HTTP-01 or DNS-01 validation.");
+                        "Create a new certificate with HTTP-01, TLS-ALPN-01, or DNS-01 validation.");
                     break;
                 case "Settings":
                     SettingsPage.Visibility = Visibility.Visible;
@@ -521,7 +550,7 @@ namespace ACMECertManager
 
         private void UpdateValidationUiState()
         {
-            if (rbDns is null || rbHttp is null || grpDnsPlugin is null || grpHttpDeployment is null || txtRelaunchAsAdmin is null)
+            if (rbDns is null || rbHttp is null || rbTls is null || grpDnsPlugin is null || grpHttpDeployment is null || txtRelaunchAsAdmin is null)
             {
                 return;
             }
@@ -530,7 +559,7 @@ namespace ACMECertManager
             var httpSelected = rbHttp.IsChecked == true;
             grpDnsPlugin.Visibility = dnsSelected ? Visibility.Visible : Visibility.Collapsed;
             grpHttpDeployment.Visibility = httpSelected ? Visibility.Visible : Visibility.Collapsed;
-            txtRelaunchAsAdmin.Visibility = httpSelected && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted) && !IsRunningAsAdministrator()
+            txtRelaunchAsAdmin.Visibility = !IsRunningAsAdministrator() && RequiresElevationForSelectedValidation()
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
@@ -564,9 +593,7 @@ namespace ACMECertManager
             pnlHttpRest.Visibility = usesRestOptions ? Visibility.Visible : Visibility.Collapsed;
             pnlHttpPublicProbe.Visibility = usesProbe ? Visibility.Visible : Visibility.Collapsed;
 
-            txtRelaunchAsAdmin.Visibility = rbHttp.IsChecked == true &&
-                                            method == HttpChallengeDeploymentMethod.SelfHosted &&
-                                            !IsRunningAsAdministrator()
+                txtRelaunchAsAdmin.Visibility = !IsRunningAsAdministrator() && RequiresElevationForSelectedValidation()
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }

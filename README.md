@@ -21,11 +21,30 @@
 
 ## Features
 - Dashboard with big friendly buttons
-- Issue wizard (domains, wildcards, HTTP-01 auto, DNS-01 plugin workflow)
+- Issue wizard (domains, wildcards, HTTP-01, TLS-ALPN-01, DNS-01 plugin workflow)
 - Manage certificates (list, expiry, renew/revoke)
 - Logs tab with colored output
 - Runtime folders auto-created next to the executable (plugins/, logs/, certs/, storage/)
 - Self-contained single .exe (runs on any Windows 10/11)
+
+## Validation Method Guide
+- HTTP-01: Best when your domain can serve `http://<domain>/.well-known/acme-challenge/<token>`. Self-hosted mode uses a temporary listener on port 80.
+- TLS-ALPN-01: Best when HTTP routing is difficult but inbound TLS on 443 is available. The app runs a temporary TLS listener with the ACME ALPN challenge certificate on port 443.
+- DNS-01 (plugin): Required for wildcard certificates and useful when ports 80/443 cannot be exposed.
+
+How to choose:
+1. Need a wildcard certificate (`*.example.com`) -> use DNS-01.
+2. Can expose port 80 and want simplest web challenge -> use HTTP-01.
+3. Can expose port 443 but not port 80 -> use TLS-ALPN-01.
+
+Administrator requirement:
+- Self-hosted HTTP-01 (port 80) and TLS-ALPN-01 (port 443) can require elevated privileges on Windows.
+- Use the in-app **Re-launch as Administrator** link before issuing when prompted.
+
+### Validation Failures (Quick Fixes)
+- Port in use (`80` or `443`): stop the conflicting service (for example IIS, Nginx, Apache, or another local reverse proxy) and retry.
+- Cannot reach challenge endpoint: verify inbound firewall/NAT rules for the selected method (`80` for HTTP-01, `443` for TLS-ALPN-01).
+- DNS-01 not validating yet: wait longer for TXT propagation, then retry (some providers need several minutes).
 
 ## Screenshots
 
@@ -173,7 +192,8 @@ Version bump guidance:
 
 ## Security Tips
 - Production is the default. Use staging from advanced options when testing to avoid rate limits.
-- Run as Administrator first time (for HTTP-01 on port 80)
+- Run as Administrator when using self-hosted HTTP-01 (port 80)
+- For TLS-ALPN-01 (port 443), admin rights are not normally required; if it fails, check for port conflicts or other listener/startup issues
 - Certificates auto-saved in `certs/` folder
 - DNS plugin credentials are stored unsecured (plaintext) in `storage/dns-secrets.json`
 
