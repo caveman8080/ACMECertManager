@@ -193,7 +193,8 @@ Version bump guidance:
 
 ## Security Tips
 - Production is the default. Use staging from advanced options when testing to avoid rate limits.
-- Run as Administrator when using self-hosted HTTP-01 (port 80) or TLS-ALPN-01 (port 443)
+- Run as Administrator when using self-hosted HTTP-01 (port 80)
+- For TLS-ALPN-01 (port 443), admin rights are not normally required; if it fails, check for port conflicts or other listener/startup issues
 - Certificates auto-saved in `certs/` folder
 - DNS plugin credentials are stored unsecured (plaintext) in `storage/dns-secrets.json`
 
