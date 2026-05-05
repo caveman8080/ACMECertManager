@@ -292,7 +292,13 @@ namespace ACMECertManager
 
         private bool RequiresElevationForSelectedValidation()
         {
-            return rbHttp?.IsChecked == true && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted);
+            // Self-hosted HTTP-01 always requires binding to port 80 via HttpListener, which needs
+            // URL ACL reservation and therefore admin rights on Windows.
+            // TLS-ALPN-01 uses a raw TcpListener on port 443, which normally succeeds without
+            // elevation, but can be denied on some Windows configurations; surface the prompt as
+            // a hint in case the user encounters a port-bind failure.
+            return (rbHttp?.IsChecked == true && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted))
+                || rbTls?.IsChecked == true;
         }
 
         private void NavPrimaryMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
