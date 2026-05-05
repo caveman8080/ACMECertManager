@@ -1298,7 +1298,7 @@ namespace ACMECertManager
                 _running = false;
                 throw new InvalidOperationException(
                     "TLS-ALPN-01 validation requires binding to port 443, but access was denied. " +
-                    "Run ACMECertManager as Administrator and ensure no other process is already listening on port 443.", ex);
+                    "Verify that this process is allowed to bind to port 443 and that the port is not blocked by a reservation, excluded port range, local policy, security software, or another process already listening on port 443.", ex);
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
             {
