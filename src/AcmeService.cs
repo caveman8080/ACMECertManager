@@ -312,6 +312,11 @@ namespace ACMECertManager
             log?.Invoke("[TLS-ALPN-01] Starting temporary TLS challenge server on port 443...");
             using var challengeCertificate = CreateTlsAlpnChallengeCertificate(identifier, challenge.KeyAuthz);
             using var server = new TlsAlpnChallengeServer(challengeCertificate);
+            if (server.IsIpv4Fallback)
+            {
+                log?.Invoke("[TLS-ALPN-01] Warning: IPv6 is not available on this system; listening on IPv4 only. " +
+                            "Validation will fail if the ACME server connects over IPv6.");
+            }
             server.Start();
 
             log?.Invoke("[TLS-ALPN-01] TLS challenge server started, sending challenge validation request...");
@@ -1271,25 +1276,34 @@ namespace ACMECertManager
         private bool _disposed;
         private Task? _listenerTask;
 
+        // True when IPv6 socket creation failed and the server fell back to IPv4-only.
+        public bool IsIpv4Fallback { get; private set; }
+
         public TlsAlpnChallengeServer(X509Certificate2 certificate)
         {
             _certificate = certificate;
-            _listener = CreateListener();
+            _listener = CreateListener(out bool ipv4Fallback);
+            IsIpv4Fallback = ipv4Fallback;
         }
 
         // Creates a dual-mode IPv6/IPv4 listener on port 443.
-        // Falls back to IPv4-only when IPv6 is unavailable on this system.
-        private static TcpListener CreateListener()
+        // Sets ipv4Fallback=true and falls back to IPv4-only when IPv6 is not
+        // supported by the OS (AddressFamilyNotSupported). Other SocketExceptions
+        // (e.g. access denied, port in use) are not caught here; they propagate
+        // from Start() where they are reported with descriptive messages.
+        private static TcpListener CreateListener(out bool ipv4Fallback)
         {
             try
             {
                 var listener = new TcpListener(IPAddress.IPv6Any, 443);
                 listener.Server.DualMode = true;
+                ipv4Fallback = false;
                 return listener;
             }
-            catch (SocketException)
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressFamilyNotSupported)
             {
-                // IPv6 not available on this system; fall back to IPv4 only.
+                // IPv6 not supported on this system; fall back to IPv4 only.
+                ipv4Fallback = true;
                 return new TcpListener(IPAddress.Any, 443);
             }
         }
