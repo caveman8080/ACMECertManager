@@ -1265,7 +1265,7 @@ namespace ACMECertManager
     {
         private static readonly SslApplicationProtocol AcmeTlsProtocol = new("acme-tls/1");
 
-        private readonly TcpListener _listener = new(IPAddress.Any, 443);
+        private readonly TcpListener _listener;
         private readonly X509Certificate2 _certificate;
         private bool _running;
         private bool _disposed;
@@ -1274,6 +1274,24 @@ namespace ACMECertManager
         public TlsAlpnChallengeServer(X509Certificate2 certificate)
         {
             _certificate = certificate;
+            _listener = CreateListener();
+        }
+
+        // Creates a dual-mode IPv6/IPv4 listener on port 443.
+        // Falls back to IPv4-only when IPv6 is unavailable on this system.
+        private static TcpListener CreateListener()
+        {
+            try
+            {
+                var listener = new TcpListener(IPAddress.IPv6Any, 443);
+                listener.Server.DualMode = true;
+                return listener;
+            }
+            catch (SocketException)
+            {
+                // IPv6 not available on this system; fall back to IPv4 only.
+                return new TcpListener(IPAddress.Any, 443);
+            }
         }
 
         public void Start()
