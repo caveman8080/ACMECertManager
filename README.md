@@ -146,7 +146,7 @@ Certificate output and visibility:
 
 ## CI and Release Workflows
 - `.github/workflows/ci.yml`
-	- Runs on push to main and on pull requests.
+	- Runs on push to main and develop, and on pull requests.
 	- Guarded by paths: only runs when `src/**`, `tests/**`, `samples/**`, or `.github/workflows/**` changes.
 	- Validates restore, build, and tests only.
 	- Uses .NET 10.
@@ -155,30 +155,18 @@ Certificate output and visibility:
 	- Builds release packages for win-x86, win-x64, and win-arm64.
 	- Publishes zipped assets to GitHub Releases.
 	- Publishes stable (non-prerelease) releases.
-- `.github/workflows/channel-release.yml`
-	- Runs on pushes to `develop` and `release/*` branches.
-	- Guarded by paths: only runs when `src/**` or `.github/workflows/**` changes.
-	- Builds release packages for win-x86, win-x64, and win-arm64.
-	- Publishes prerelease assets to GitHub Releases.
 
 ## Versioning and Release Process
-- Baseline project version is `1.0.0`.
 - Stable release workflow enforces SemVer tags in this format: `vMAJOR.MINOR.PATCH`.
-- Channel workflow auto-generates prerelease tags from branch updates:
-	- `develop` -> `v1.0.0-alpha.<run>.<attempt>`
-	- `release/*` -> `v1.0.0-rc.<run>.<attempt>`
 - The app version metadata is automatically set by workflow at build time.
 
 Release steps:
-1. Update code and merge to main.
-2. Create and push a release tag, for example:
+1. Develop and test changes on the `develop` branch.
+2. Open a pull request from `develop` to `main` and merge when ready.
+3. Create and push a release tag, for example:
 	 - `git tag v1.0.0`
 	 - `git push origin v1.0.0`
-3. GitHub Actions runs the release workflow and publishes release assets.
-
-Channel prerelease steps:
-1. Push updates to `develop` for alpha builds, or `release/*` for RC builds.
-2. GitHub Actions automatically creates a prerelease with channel tag/version.
+4. GitHub Actions runs the release workflow and publishes release assets.
 
 Version bump guidance:
 - Patch update (bug fixes): `v1.0.1`
