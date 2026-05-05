@@ -1341,23 +1341,58 @@ namespace ACMECertManager
 
             _listenerTask = Task.Run(async () =>
             {
-                while (_running)
+                var clientTasks = new List<Task>();
+                var clientTasksLock = new object();
+
+                try
                 {
-                    TcpClient? client = null;
-                    try
+                    while (_running)
                     {
-                        client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                        TcpClient? client = null;
+                        try
+                        {
+                            client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            break;
+                        }
+                        catch (SocketException)
+                        {
+                            break;
+                        }
+
+                        var clientTask = HandleClientAsync(client);
+                        lock (clientTasksLock)
+                        {
+                            clientTasks.Add(clientTask);
+                        }
+
+                        _ = clientTask.ContinueWith(
+                            completedTask =>
+                            {
+                                lock (clientTasksLock)
+                                {
+                                    clientTasks.Remove(completedTask);
+                                }
+                            },
+                            CancellationToken.None,
+                            TaskContinuationOptions.ExecuteSynchronously,
+                            TaskScheduler.Default);
                     }
-                    catch (ObjectDisposedException)
+                }
+                finally
+                {
+                    Task[] pendingClientTasks;
+                    lock (clientTasksLock)
                     {
-                        break;
-                    }
-                    catch (SocketException)
-                    {
-                        break;
+                        pendingClientTasks = clientTasks.ToArray();
                     }
 
-                    _ = HandleClientAsync(client);
+                    if (pendingClientTasks.Length > 0)
+                    {
+                        await Task.WhenAll(pendingClientTasks).ConfigureAwait(false);
+                    }
                 }
             });
         }
