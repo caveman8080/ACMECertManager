@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -73,5 +74,43 @@ public sealed class ValidationMethodAndTlsTests
         var expectedDigest = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("token.key-authz"));
         var actualDigest = acmeExtension.RawData.Skip(2).ToArray();
         Assert.Equal(expectedDigest, actualDigest);
+    }
+
+    [Fact]
+    public void TranslateListenerStartException_AccessDenied_ContainsPortAndPolicyGuidance()
+    {
+        var inner = new SocketException((int)SocketError.AccessDenied);
+
+        var result = TlsAlpnChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 443", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("access was denied", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
+    }
+
+    [Fact]
+    public void TranslateListenerStartException_AddressAlreadyInUse_ContainsPortInUseMessage()
+    {
+        var inner = new SocketException((int)SocketError.AddressAlreadyInUse);
+
+        var result = TlsAlpnChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 443", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already in use", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
+    }
+
+    [Fact]
+    public void TranslateListenerStartException_OtherSocketError_IncludesOriginalMessage()
+    {
+        var inner = new SocketException((int)SocketError.NetworkUnreachable);
+
+        var result = TlsAlpnChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 443", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
     }
 }

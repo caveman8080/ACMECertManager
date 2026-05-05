@@ -1325,18 +1325,10 @@ namespace ACMECertManager
             {
                 _listener.Start();
             }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AccessDenied)
+            catch (SocketException ex)
             {
                 _running = false;
-                throw new InvalidOperationException(
-                    "TLS-ALPN-01 validation requires binding to port 443, but access was denied. " +
-                    "Verify that this process is allowed to bind to port 443 and that the port is not blocked by a reservation, excluded port range, local policy, security software, or another process already listening on port 443.", ex);
-            }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
-            {
-                _running = false;
-                throw new InvalidOperationException(
-                    "TLS-ALPN-01 validation requires port 443, but the port is already in use by another process.", ex);
+                throw TranslateListenerStartException(ex);
             }
 
             _listenerTask = Task.Run(async () =>
@@ -1395,6 +1387,25 @@ namespace ACMECertManager
                     }
                 }
             });
+        }
+
+        // Translates a SocketException thrown by TcpListener.Start() into an InvalidOperationException
+        // with a user-readable message. Internal so it can be called directly by unit tests.
+        internal static InvalidOperationException TranslateListenerStartException(SocketException ex)
+        {
+            return ex.SocketErrorCode switch
+            {
+                SocketError.AccessDenied =>
+                    new InvalidOperationException(
+                        "TLS-ALPN-01 validation requires binding to port 443, but access was denied. " +
+                        "Verify that this process is allowed to bind to port 443 and that the port is not blocked by a reservation, excluded port range, local policy, security software, or another process already listening on port 443.", ex),
+                SocketError.AddressAlreadyInUse =>
+                    new InvalidOperationException(
+                        "TLS-ALPN-01 validation requires port 443, but the port is already in use by another process.", ex),
+                _ =>
+                    new InvalidOperationException(
+                        $"Failed to start TLS-ALPN-01 listener on port 443: {ex.Message}", ex)
+            };
         }
 
         private async Task HandleClientAsync(TcpClient client)
