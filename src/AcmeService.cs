@@ -1345,8 +1345,13 @@ namespace ACMECertManager
                         CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                         ApplicationProtocols = new List<SslApplicationProtocol> { AcmeTlsProtocol }
                     };
+                    using var handshakeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
-                    await ssl.AuthenticateAsServerAsync(options, CancellationToken.None).ConfigureAwait(false);
+                    await ssl.AuthenticateAsServerAsync(options, handshakeTimeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Ignore stalled clients that do not complete the TLS handshake promptly.
                 }
                 catch (AuthenticationException)
                 {
