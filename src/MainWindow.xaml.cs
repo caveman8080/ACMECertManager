@@ -99,10 +99,10 @@ namespace ACMECertManager
                         ? ChallengeValidationMethod.TlsAlpn01
                         : ChallengeValidationMethod.Http01;
 
-                if (validationMethod == ChallengeValidationMethod.TlsAlpn01 &&
-                    domains.Any(d => d.StartsWith("*.", StringComparison.Ordinal)))
+                var hasWildcardDomain = domains.Any(d => d.StartsWith("*.", StringComparison.Ordinal));
+                if (hasWildcardDomain && validationMethod != ChallengeValidationMethod.Dns01)
                 {
-                    throw new InvalidOperationException("TLS-ALPN-01 cannot be used for wildcard domains. Please choose DNS validation for names such as *.example.com.");
+                    throw new InvalidOperationException("Wildcard domains can only be used with DNS validation. Please choose DNS validation for names such as *.example.com.");
                 }
 
                 var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
