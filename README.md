@@ -4,7 +4,6 @@
 [![CodeQL](https://github.com/caveman8080/ACMECertManager/actions/workflows/codeql.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/codeql.yml)
 [![Dependabot Updates](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates)
 [![Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml)
-[![Channel Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/channel-release.yml)
 
 **The friendliest Windows app for free Let's Encrypt certificates**  
 
