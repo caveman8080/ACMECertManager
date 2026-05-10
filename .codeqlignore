@@ -1,0 +1,10 @@
+# Ignore build output and generated files
+# Exclude obj and bin folders (build artifacts)
+**/obj/**
+**/bin/**
+
+# Ignore generated partial classes from XAML build tasks
+**/*.g.cs
+
+# Ignore Visual Studio generated designer files
+**/*.Designer.cs
