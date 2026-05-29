@@ -986,13 +986,13 @@ namespace ACMECertManager
                 return;
             }
 
-            foreach (var item in cmbAppearanceTheme.Items.OfType<ComboBoxItem>())
+            foreach (var item in cmbAppearanceTheme.Items
+                .OfType<ComboBoxItem>()
+                .Where(item => item.Tag is string tag &&
+                    string.Equals(tag, themePreference, StringComparison.OrdinalIgnoreCase)))
             {
-                if (item.Tag is string tag && string.Equals(tag, themePreference, StringComparison.OrdinalIgnoreCase))
-                {
-                    cmbAppearanceTheme.SelectedItem = item;
-                    return;
-                }
+                cmbAppearanceTheme.SelectedItem = item;
+                return;
             }
 
             cmbAppearanceTheme.SelectedIndex = 0;
