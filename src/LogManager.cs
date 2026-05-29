@@ -154,7 +154,7 @@ namespace ACMECertManager
                         throw new InvalidOperationException("No log files found to export.");
 
                     using var writer = new StreamWriter(exportPath, false, Encoding.UTF8);
-                    
+
                     writer.WriteLine("=== ACME Certificate Manager - Log Export ===");
                     writer.WriteLine($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                     writer.WriteLine($"Total log files: {logFiles.Length}");

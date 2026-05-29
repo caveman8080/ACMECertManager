@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
+using Wpf.Ui.Appearance;
 using Microsoft.Win32;
 
 namespace ACMECertManager
@@ -10,6 +11,7 @@ namespace ACMECertManager
     public partial class App : Application
     {
         public int MaxLogFileSizeMb { get; private set; } = 10;
+        public string ThemePreference { get; private set; } = "System Default";
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -18,7 +20,8 @@ namespace ACMECertManager
 
             var settings = LoadPersistedSettings();
             MaxLogFileSizeMb = settings.MaxLogFileSizeMb;
-            ApplySystemThemeBrushes();
+            ThemePreference = NormalizeThemePreference(settings.Theme);
+            ApplyThemePreference(ThemePreference);
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
             base.OnStartup(e);
         }
@@ -31,15 +34,43 @@ namespace ACMECertManager
 
         private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
         {
-            if (e.Category is UserPreferenceCategory.Color or UserPreferenceCategory.General or UserPreferenceCategory.VisualStyle)
+            if (ThemePreference == "System Default" && e.Category is UserPreferenceCategory.Color or UserPreferenceCategory.General or UserPreferenceCategory.VisualStyle)
             {
-                Dispatcher.Invoke(ApplySystemThemeBrushes);
+                Dispatcher.Invoke(() => ApplyThemePreference(ThemePreference));
             }
         }
 
-        private void ApplySystemThemeBrushes()
+        private void ApplyThemePreference(string themePreference)
         {
-            var darkMode = IsSystemDarkModeEnabled();
+            switch (themePreference)
+            {
+                case "Light":
+                    ApplicationThemeManager.Apply(ApplicationTheme.Light);
+                    ApplyThemeBrushes(darkMode: false);
+                    break;
+                case "Dark":
+                    ApplicationThemeManager.Apply(ApplicationTheme.Dark);
+                    ApplyThemeBrushes(darkMode: true);
+                    break;
+                default:
+                    ApplicationThemeManager.ApplySystemTheme();
+                    ApplyThemeBrushes(darkMode: IsSystemDarkModeEnabled());
+                    break;
+            }
+        }
+
+        private static string NormalizeThemePreference(string? theme)
+        {
+            return theme switch
+            {
+                "Light" => "Light",
+                "Dark" => "Dark",
+                _ => "System Default"
+            };
+        }
+
+        private void ApplyThemeBrushes(bool darkMode)
+        {
 
             if (darkMode)
             {
@@ -69,6 +100,13 @@ namespace ACMECertManager
                 SetBrush("NavHoverBrush", 0x00, 0x00, 0x00, 0.06);
                 SetBrush("NavSelectedBorderBrush", 0x1A, 0x73, 0xE8, 0.7);
             }
+        }
+
+        public void SetThemePreference(string themePreference)
+        {
+            ThemePreference = NormalizeThemePreference(themePreference);
+            ApplyThemePreference(ThemePreference);
+            SaveSettings();
         }
 
         private void SetBrush(string resourceKey, byte red, byte green, byte blue, double opacity = 1.0)
@@ -152,6 +190,7 @@ namespace ACMECertManager
             {
                 var settings = new ThemeSettings
                 {
+                    Theme = ThemePreference,
                     MaxLogFileSizeMb = MaxLogFileSizeMb
                 };
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -173,7 +212,7 @@ namespace ACMECertManager
 
         private sealed class ThemeSettings
         {
-            public string? Theme { get; set; }
+            public string? Theme { get; set; } = "System Default";
             public int MaxLogFileSizeMb { get; set; } = 10;
         }
     }

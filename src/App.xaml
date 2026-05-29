@@ -4,17 +4,11 @@
              StartupUri="MainWindow.xaml"
              ThemeMode="System">
     <Application.Resources>
-        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
-        <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
-        <SolidColorBrush x:Key="InputBackgroundBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
-        <SolidColorBrush x:Key="PrimaryTextBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}"/>
-        <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}"/>
-        <SolidColorBrush x:Key="SecondaryTextBrush" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}"/>
-        <SolidColorBrush x:Key="BorderBrush" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}"/>
-        <SolidColorBrush x:Key="SecondaryBrush" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}"/>
-        <SolidColorBrush x:Key="NavSelectedBrush" Color="#1A5FB4" Opacity="0.16"/>
-        <SolidColorBrush x:Key="NavHoverBrush" Color="#808080" Opacity="0.14"/>
-        <SolidColorBrush x:Key="NavSelectedBorderBrush" Color="#1A5FB4" Opacity="0.7"/>
-        <SolidColorBrush x:Key="WarningBrush" Color="#C42B1C"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemesDictionary Theme="Dark" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" />
+                <ui:ControlsDictionary xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

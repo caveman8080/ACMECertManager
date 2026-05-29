@@ -24,7 +24,7 @@ namespace ACMECertManager
         {
             lstPlugins.Items.Clear();
             var allSecrets = DnsSecretStorage.LoadAll();
-            
+
             foreach (var entry in allSecrets
                 .Where(entry => entry.Credentials.Count > 0)
                 .OrderBy(entry => entry.PluginId, StringComparer.OrdinalIgnoreCase))
@@ -98,7 +98,7 @@ namespace ACMECertManager
                 }
 
                 DnsSecretStorage.SaveCredential(_selectedPluginId, updatedCred);
-                
+
                 // Refresh display
                 PluginList_SelectionChanged(null!, null!);
             }
@@ -122,7 +122,7 @@ namespace ACMECertManager
             {
                 DnsSecretStorage.DeleteCredential(_selectedPluginId, item.OriginalDomain);
                 PluginList_SelectionChanged(null!, null!);
-                
+
                 // If no more credentials for this plugin, remove from list
                 if (DnsSecretStorage.GetCredentialsForPlugin(_selectedPluginId).Count == 0)
                 {
@@ -161,7 +161,7 @@ namespace ACMECertManager
                 };
 
                 DnsSecretStorage.SaveCredential(_selectedPluginId, newCred);
-                
+
                 // Refresh display
                 PluginList_SelectionChanged(null!, null!);
             }

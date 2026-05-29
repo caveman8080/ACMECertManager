@@ -9,18 +9,21 @@ using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Wpf.Ui.Appearance;
+// screenshot capture removed
 using Microsoft.Extensions.Logging;
 
 namespace ACMECertManager
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         private readonly ILogger<MainWindow> _logger;
         private readonly AcmeService _acmeService = new();
         private List<CertificateModel> _certificates = new();
-        private readonly Dictionary<string, TextBox> _dnsFieldInputs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, System.Windows.Controls.TextBox> _dnsFieldInputs = new(StringComparer.OrdinalIgnoreCase);
         private LogManager? _logManager;
         private List<LoadedDnsPlugin> _availablePlugins = new();
         private readonly Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
@@ -30,6 +33,8 @@ namespace ACMECertManager
 
         public MainWindow()
         {
+            SystemThemeWatcher.Watch(this);
+
             InitializeComponent();
             _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MainWindow>();
 
@@ -41,6 +46,7 @@ namespace ACMECertManager
 
             UpdateAdminRelaunchVisibility();
             SetMaxLogFileSizeInput(app.MaxLogFileSizeMb);
+            SetAppearanceThemeSelection(app.ThemePreference);
 
             _certificates = CertificateStorage.Load();
             LoadCertificatesGrid();
@@ -55,7 +61,7 @@ namespace ACMECertManager
 
         private void InitializeNavigation()
         {
-            if (NavPrimaryMenu.Items.Count == 0 && NavFooterMenu.Items.Count == 0)
+            if ((NavPrimaryMenu?.MenuItems?.Count ?? 0) == 0 && (NavPrimaryMenu?.FooterMenuItems?.Count ?? 0) == 0)
             {
                 return;
             }
@@ -125,13 +131,13 @@ namespace ACMECertManager
                     }
 
                     var credentials = CollectDnsCredentials(loadedPlugin);
-                    var warning = MessageBox.Show(
+                    var warning = System.Windows.MessageBox.Show(
                         "DNS plugin secrets are currently stored as plaintext in storage/dns-secrets.json. Continue?",
                         "Security Warning",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Warning);
+                        System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxImage.Warning);
 
-                    if (warning != MessageBoxResult.Yes)
+                    if (warning != System.Windows.MessageBoxResult.Yes)
                     {
                         Log("DNS issuance canceled by user after plaintext warning.");
                         return;
@@ -171,17 +177,17 @@ namespace ACMECertManager
                 var outputSummary = createPfxFile && !string.IsNullOrWhiteSpace(cert.PfxPath)
                     ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
                     : $"PEM files saved in:\n{cert.OutputDirectory}";
-                MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", MessageBoxButton.OK, MessageBoxImage.Information);
+                System.Windows.MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
             catch (InvalidOperationException ex)
             {
                 Log($"❌ Error: {ex.Message}");
-                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
             catch (ArgumentException ex)
             {
                 Log($"❌ Error: {ex.Message}");
-                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
             catch (IOException ex)
             {
@@ -301,35 +307,41 @@ namespace ACMECertManager
                 || rbTls?.IsChecked == true;
         }
 
-        private void NavPrimaryMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void NavPrimaryMenu_ItemInvoked(object sender, RoutedEventArgs e)
         {
             if (_isSyncingNavSelection)
             {
                 return;
             }
 
-            if (NavPrimaryMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
+            if (sender is not Wpf.Ui.Controls.NavigationView nav)
             {
                 return;
             }
 
-            NavigateToPage(pageKey, pushHistory: true);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isSyncingNavSelection)
+                {
+                    return;
+                }
+
+                if (nav.SelectedItem is FrameworkElement selectedElement && selectedElement.Tag is string pageKey)
+                {
+                    NavigateToPage(pageKey, pushHistory: true);
+                }
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
-        private void NavFooterMenu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void NavMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (_isSyncingNavSelection)
+            if (sender is Wpf.Ui.Controls.NavigationViewItem item && item.Tag is string pageKey)
             {
-                return;
+                NavigateToPage(pageKey, pushHistory: true);
             }
-
-            if (NavFooterMenu.SelectedItem is not ListBoxItem selectedItem || selectedItem.Tag is not string pageKey)
-            {
-                return;
-            }
-
-            NavigateToPage(pageKey, pushHistory: true);
         }
+
+
 
         private void NavigateToPage(string pageKey, bool pushHistory)
         {
@@ -352,23 +364,14 @@ namespace ACMECertManager
         private void SelectMenuForPage(string pageKey)
         {
             _isSyncingNavSelection = true;
-            NavPrimaryMenu.SelectedItem = FindMenuItemByTag(NavPrimaryMenu, pageKey);
-            NavFooterMenu.SelectedItem = FindMenuItemByTag(NavFooterMenu, pageKey);
+            try
+            {
+                NavPrimaryMenu?.Navigate(pageKey);
+            }
+            catch { }
             _isSyncingNavSelection = false;
         }
 
-        private static ListBoxItem? FindMenuItemByTag(ListBox menu, string pageKey)
-        {
-            foreach (var item in menu.Items)
-            {
-                if (item is ListBoxItem listItem && string.Equals(listItem.Tag as string, pageKey, StringComparison.Ordinal))
-                {
-                    return listItem;
-                }
-            }
-
-            return null;
-        }
 
         private void UpdateBackButtonState()
         {
@@ -593,9 +596,9 @@ namespace ACMECertManager
             pnlHttpRest.Visibility = usesRestOptions ? Visibility.Visible : Visibility.Collapsed;
             pnlHttpPublicProbe.Visibility = usesProbe ? Visibility.Visible : Visibility.Collapsed;
 
-                txtRelaunchAsAdmin.Visibility = !IsRunningAsAdministrator() && RequiresElevationForSelectedValidation()
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            txtRelaunchAsAdmin.Visibility = !IsRunningAsAdministrator() && RequiresElevationForSelectedValidation()
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         }
 
         private HttpChallengeDeploymentOptions? BuildHttpDeploymentOptions(ChallengeValidationMethod validationMethod)
@@ -746,7 +749,7 @@ namespace ACMECertManager
             // If there are saved credentials, show a selector
             if (allCredentials.Count > 0)
             {
-                var selectLabel = new TextBlock
+                var selectLabel = new System.Windows.Controls.TextBlock
                 {
                     Text = "Stored Credentials",
                     Margin = new Thickness(0, 4, 0, 2),
@@ -755,19 +758,19 @@ namespace ACMECertManager
                 };
                 pnlDnsFields.Children.Add(selectLabel);
 
-                var credentialCombo = new ComboBox
+                var credentialCombo = new System.Windows.Controls.ComboBox
                 {
                     Height = 34,
                     Margin = new Thickness(0, 0, 0, 12)
                 };
                 credentialCombo.ItemContainerStyle = (Style)FindResource("ReadableComboBoxItemStyle");
 
-                credentialCombo.Items.Add(new ComboBoxItem { Content = "(use new/custom credentials)" });
+                credentialCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "(use new/custom credentials)" });
 
                 foreach (var cred in allCredentials)
                 {
                     var displayName = string.IsNullOrEmpty(cred.Domain) ? "(default)" : cred.Domain;
-                    credentialCombo.Items.Add(new ComboBoxItem { Content = displayName, Tag = cred });
+                    credentialCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = displayName, Tag = cred });
                 }
 
                 credentialCombo.SelectedIndex = 0;
@@ -793,7 +796,7 @@ namespace ACMECertManager
 
             foreach (var field in selected.Instance.GetCredentialFields())
             {
-                var label = new TextBlock
+                var label = new System.Windows.Controls.TextBlock
                 {
                     Text = field.IsRequired ? $"{field.Label} *" : field.Label,
                     Margin = new Thickness(0, 4, 0, 2),
@@ -802,7 +805,7 @@ namespace ACMECertManager
                 };
                 pnlDnsFields.Children.Add(label);
 
-                var input = new TextBox
+                var input = new System.Windows.Controls.TextBox
                 {
                     Height = 34,
                     Padding = new Thickness(8, 4, 8, 4),
@@ -819,7 +822,7 @@ namespace ACMECertManager
 
                 if (!string.IsNullOrWhiteSpace(field.Placeholder))
                 {
-                    pnlDnsFields.Children.Add(new TextBlock
+                    pnlDnsFields.Children.Add(new System.Windows.Controls.TextBlock
                     {
                         Text = field.Placeholder,
                         Margin = new Thickness(0, 2, 0, 6),
@@ -956,6 +959,37 @@ namespace ACMECertManager
 
                 Log($"📊 Log file size limit changed to {sizeMb} MB");
             }
+        }
+
+        private void AppearanceTheme_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (cmbAppearanceTheme?.SelectedItem is not ComboBoxItem selectedItem || selectedItem.Tag is not string themePreference)
+            {
+                return;
+            }
+
+            var app = (App)Application.Current;
+            app.SetThemePreference(themePreference);
+            Log($"🎨 Application theme changed to {themePreference}");
+        }
+
+        private void SetAppearanceThemeSelection(string themePreference)
+        {
+            if (cmbAppearanceTheme is null)
+            {
+                return;
+            }
+
+            foreach (var item in cmbAppearanceTheme.Items.OfType<ComboBoxItem>())
+            {
+                if (item.Tag is string tag && string.Equals(tag, themePreference, StringComparison.OrdinalIgnoreCase))
+                {
+                    cmbAppearanceTheme.SelectedItem = item;
+                    return;
+                }
+            }
+
+            cmbAppearanceTheme.SelectedIndex = 0;
         }
 
         private void LoadPersistedLogs()

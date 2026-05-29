@@ -50,13 +50,13 @@ namespace ACMECertManager
 
             var json = File.ReadAllText(path);
             var entries = JsonSerializer.Deserialize<List<DnsSecretEntry>>(json) ?? new List<DnsSecretEntry>();
-            
+
             // Ensure all entries have initialized Credentials lists
             foreach (var entry in entries.Where(entry => entry.Credentials == null))
             {
                 entry.Credentials = new List<DnsSecretCredential>();
             }
-            
+
             return entries;
         }
 
@@ -114,7 +114,7 @@ namespace ACMECertManager
         {
             var all = LoadAll();
             var existing = all.FirstOrDefault(e => e.PluginId == pluginId);
-            
+
             if (existing != null)
             {
                 var normalizedDomain = NormalizeDomainContext(domain);
