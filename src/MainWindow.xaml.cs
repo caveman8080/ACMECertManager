@@ -368,7 +368,11 @@ namespace ACMECertManager
             {
                 NavPrimaryMenu?.Navigate(pageKey);
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                _logger?.LogWarning(ex, "Failed to synchronize navigation menu selection for page key '{PageKey}'.", pageKey);
+            }
+            catch (ArgumentException ex)
             {
                 _logger?.LogWarning(ex, "Failed to synchronize navigation menu selection for page key '{PageKey}'.", pageKey);
             }
