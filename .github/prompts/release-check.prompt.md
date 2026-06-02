@@ -7,14 +7,16 @@ agent: "agent"
 Perform a release-readiness check for this repository.
 
 Scope:
-- Use the optional user argument as focus guidance if provided. Otherwise run full validation.
-- Validate commands from [project instructions](../copilot-instructions.md) and [CI workflow](../workflows/ci.yml).
+- Use the optional user argument only to prioritize the summary and any extra notes; always run the required checks below.
+- Extract the specific CLI arguments and flags from [project instructions](../copilot-instructions.md) and [CI workflow](../workflows/ci.yml), and use them when executing the required checks. If either file cannot be found, proceed with standard `dotnet` CLI commands.
 
 Required checks:
 1. Run restore.
 2. Run a debug project build from repo root.
 3. Run CI parity build using no-restore.
 4. Run release single-file publish for win-x64.
+
+If a check fails, abort immediately and do not run subsequent checks.
 
 Report format:
 1. Overall status: pass or fail.
