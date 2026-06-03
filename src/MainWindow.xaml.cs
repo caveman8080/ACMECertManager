@@ -939,7 +939,7 @@ namespace ACMECertManager
                 };
                 secretsWindow.ShowDialog();
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
                 Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
                 MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
