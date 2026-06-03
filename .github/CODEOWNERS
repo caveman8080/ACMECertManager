@@ -1,0 +1,9 @@
+# Default owners for everything
+*       @caveman8080
+
+# .NET / WPF specific
+*.cs    @caveman8080
+*.xaml  @caveman8080
+
+# CI / build files
+.github/workflows/   @caveman8080
