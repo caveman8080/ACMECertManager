@@ -939,7 +939,22 @@ namespace ACMECertManager
                 };
                 secretsWindow.ShowDialog();
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
+                MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
+                MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
+                MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
             {
                 Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
                 MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
