@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace ACMECertManager
 {
-    public partial class DnsSecretEditWindow : Window
+    public partial class DnsSecretEditWindow : Wpf.Ui.Controls.FluentWindow
     {
         private readonly Dictionary<string, TextBox> _credentialInputs = new(StringComparer.OrdinalIgnoreCase);
         private readonly LoadedDnsPlugin _plugin;

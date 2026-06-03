@@ -178,5 +178,38 @@ public sealed class StorageAndModelTests
             }
         }
     }
+
+    [Fact]
+    public void DnsSecretStorage_LoadAll_IgnoresMalformedJson()
+    {
+        var storageDirectory = Path.Join(AppContext.BaseDirectory, "storage");
+        Directory.CreateDirectory(storageDirectory);
+
+        var secretsPath = Path.Join(storageDirectory, "dns-secrets.json");
+        var backup = File.Exists(secretsPath) ? File.ReadAllText(secretsPath) : null;
+
+        try
+        {
+            File.WriteAllText(secretsPath, "{ not valid json ");
+
+            var loaded = DnsSecretStorage.LoadAll();
+
+            Assert.Empty(loaded);
+        }
+        finally
+        {
+            if (backup is null)
+            {
+                if (File.Exists(secretsPath))
+                {
+                    File.Delete(secretsPath);
+                }
+            }
+            else
+            {
+                File.WriteAllText(secretsPath, backup);
+            }
+        }
+    }
 }
 

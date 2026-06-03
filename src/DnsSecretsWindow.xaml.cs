@@ -6,7 +6,7 @@ using System.Windows.Controls;
 
 namespace ACMECertManager
 {
-    public partial class DnsSecretsWindow : Window
+    public partial class DnsSecretsWindow : Wpf.Ui.Controls.FluentWindow
     {
         private readonly List<LoadedDnsPlugin> _availablePlugins;
         private readonly Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields;

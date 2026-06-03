@@ -42,22 +42,39 @@ namespace ACMECertManager
     {
         public static List<DnsSecretEntry> LoadAll()
         {
+            RuntimePaths.EnsureRequiredDirectories();
+
             var path = RuntimePaths.DnsSecretsFile;
             if (!File.Exists(path))
             {
                 return new List<DnsSecretEntry>();
             }
 
-            var json = File.ReadAllText(path);
-            var entries = JsonSerializer.Deserialize<List<DnsSecretEntry>>(json) ?? new List<DnsSecretEntry>();
-
-            // Ensure all entries have initialized Credentials lists
-            foreach (var entry in entries.Where(entry => entry.Credentials == null))
+            try
             {
-                entry.Credentials = new List<DnsSecretCredential>();
-            }
+                var json = File.ReadAllText(path);
+                var entries = JsonSerializer.Deserialize<List<DnsSecretEntry>>(json) ?? new List<DnsSecretEntry>();
 
-            return entries;
+                // Ensure all entries have initialized Credentials lists
+                foreach (var entry in entries.Where(entry => entry.Credentials == null))
+                {
+                    entry.Credentials = new List<DnsSecretCredential>();
+                }
+
+                return entries;
+            }
+            catch (JsonException)
+            {
+                return new List<DnsSecretEntry>();
+            }
+            catch (IOException)
+            {
+                return new List<DnsSecretEntry>();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return new List<DnsSecretEntry>();
+            }
         }
 
         public static Dictionary<string, string> GetForPlugin(string pluginId)
@@ -153,6 +170,8 @@ namespace ACMECertManager
 
         public static void SaveAll(List<DnsSecretEntry> entries)
         {
+            RuntimePaths.EnsureRequiredDirectories();
+
             var path = RuntimePaths.DnsSecretsFile;
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json);

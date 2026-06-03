@@ -924,18 +924,26 @@ namespace ACMECertManager
 
         private void ViewDnsSecrets_Click(object sender, RoutedEventArgs e)
         {
-            var all = DnsSecretStorage.LoadAll();
-            if (all.Count == 0)
+            try
             {
-                MessageBox.Show("No DNS plugin secrets are currently stored.", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+                var all = DnsSecretStorage.LoadAll();
+                if (all.Count == 0)
+                {
+                    MessageBox.Show("No DNS plugin secrets are currently stored.", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
 
-            var secretsWindow = new DnsSecretsWindow(_availablePlugins, _pluginFields)
+                var secretsWindow = new DnsSecretsWindow(_availablePlugins, _pluginFields)
+                {
+                    Owner = this
+                };
+                secretsWindow.ShowDialog();
+            }
+            catch (Exception ex)
             {
-                Owner = this
-            };
-            secretsWindow.ShowDialog();
+                Log($"❌ Failed to open stored DNS secrets: {ex.Message}");
+                MessageBox.Show($"Unable to open stored DNS secrets.\n\n{ex.Message}", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void SetMaxLogFileSizeInput(int sizeMb)
