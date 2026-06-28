@@ -263,9 +263,9 @@ namespace ACMECertManager
                     pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
                     log?.Invoke("[CERT] PFX file built successfully");
                 }
-                catch (Exception ex) when (IsIssuerResolutionFailure(ex))
+                catch (Exception ex)
                 {
-                    log?.Invoke("[CERT] ⚠️ Certificate chain issuer resolution failed while building PFX. Falling back to leaf-only PFX export.");
+                    log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
                     pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
                     log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
                 }
@@ -823,21 +823,40 @@ namespace ACMECertManager
 
         public async Task RevokeCertificateAsync(CertificateModel certificate)
         {
-            if (!File.Exists(RuntimePaths.AccountFile))
-            {
-                throw new InvalidOperationException("ACME account key not found in storage/acme-account.json.");
-            }
-
             var acmeUrl = string.IsNullOrWhiteSpace(certificate.AcmeDirectoryUrl)
                 ? LetsEncryptProductionDirectoryUrl
                 : certificate.AcmeDirectoryUrl;
 
-            var accountKey = KeyFactory.FromPem(File.ReadAllText(RuntimePaths.AccountFile));
-            var acme = new AcmeContext(new Uri(acmeUrl), accountKey);
-
             var rawCertificate = LoadCertificateForRevocation(certificate);
 
-            await acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, null!);
+            // ACME revocation (Let's Encrypt) requires the certificate's own private key to sign the request.
+            // The account key is not sufficient for standard revocation.
+            string? privateKeyPem = null;
+            try
+            {
+                privateKeyPem = GetPrivateKeyPemForRevocation(certificate);
+            }
+            catch (InvalidOperationException)
+            {
+                // No private key available; we cannot perform ACME revocation.
+                throw new InvalidOperationException(
+                    "Revocation requires the certificate's private key (privkey.pem). " +
+                    "The certificate can be deleted locally, but ACME server revocation cannot be performed without the private key.");
+            }
+
+            // Create a fresh AcmeContext without an account key; the private key will be used only for the revocation signature.
+            var acme = new AcmeContext(new Uri(acmeUrl));
+            var certPrivateKey = KeyFactory.FromPem(privateKeyPem);
+
+            try
+            {
+                await acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, certPrivateKey);
+            }
+            catch (AcmeRequestException ex)
+            {
+                var detail = ex.Error?.Detail ?? ex.Message;
+                throw new InvalidOperationException($"ACME server rejected revocation request: {detail}", ex);
+            }
         }
 
         private static byte[] LoadCertificateForRevocation(CertificateModel certificate)
@@ -859,6 +878,23 @@ namespace ACMECertManager
 
             throw new FileNotFoundException(
                 "Cannot revoke because certificate file is missing. Expected either certificate.pfx or cert.pem in the certificate output folder.");
+        }
+
+        private static string GetPrivateKeyPemForRevocation(CertificateModel certificate)
+        {
+            if (!string.IsNullOrWhiteSpace(certificate.PrivateKeyPemPath) && File.Exists(certificate.PrivateKeyPemPath))
+            {
+                return File.ReadAllText(certificate.PrivateKeyPemPath).Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(certificate.PfxPath) && File.Exists(certificate.PfxPath))
+            {
+                throw new InvalidOperationException(
+                    "Private key PEM path missing. " +
+                    "Revocation requires privkey.pem. PFX fallback key export is not supported; ensure privkey.pem exists alongside the certificate.");
+            }
+
+            throw new InvalidOperationException("Private key not found for revocation. Expected privkey.pem in certificate folder.");
         }
 
         private static string ComputeDnsTxtValue(string keyAuthorization)
@@ -1123,7 +1159,8 @@ namespace ACMECertManager
                 var resource = await order.Resource();
                 var status = resource.Status;
 
-                if (status == Certes.Acme.Resource.OrderStatus.Ready)
+                if (status == Certes.Acme.Resource.OrderStatus.Ready ||
+                    status == Certes.Acme.Resource.OrderStatus.Valid)
                 {
                     return;
                 }

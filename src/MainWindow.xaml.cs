@@ -13,7 +13,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Wpf.Ui.Appearance;
-// screenshot capture removed
 using Microsoft.Extensions.Logging;
 
 namespace ACMECertManager
@@ -40,7 +39,6 @@ namespace ACMECertManager
 
             Loaded += (_, _) => InitializeNavigation();
 
-            // Initialize LogManager with the max size from app settings
             var app = (App)Application.Current;
             _logManager = new LogManager(RuntimePaths.LogsDirectory, app.MaxLogFileSizeMb);
 
@@ -53,7 +51,6 @@ namespace ACMECertManager
             LoadDnsPlugins();
             UpdateValidationUiState();
 
-            // Load persisted logs if they exist
             LoadPersistedLogs();
 
             Log("🚀 ACME Certificate Manager started! Default = production mode");
@@ -81,7 +78,6 @@ namespace ACMECertManager
             }
             catch (ObjectDisposedException)
             {
-                // Keep running if persistent logging fails
             }
 
             UpdateLogStatistics();
@@ -298,11 +294,6 @@ namespace ACMECertManager
 
         private bool RequiresElevationForSelectedValidation()
         {
-            // Self-hosted HTTP-01 always requires binding to port 80 via HttpListener, which needs
-            // URL ACL reservation and therefore admin rights on Windows.
-            // TLS-ALPN-01 uses a raw TcpListener on port 443, which normally succeeds without
-            // elevation, but can be denied on some Windows configurations; surface the prompt as
-            // a hint in case the user encounters a port-bind failure.
             return (rbHttp?.IsChecked == true && IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod.SelfHosted))
                 || rbTls?.IsChecked == true;
         }
@@ -706,7 +697,6 @@ namespace ACMECertManager
                 .OrderBy(p => p.Metadata.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // Build plugin fields dictionary for secrets window
             _pluginFields.Clear();
             foreach (var plugin in _availablePlugins)
             {
@@ -753,10 +743,8 @@ namespace ACMECertManager
 
             txtPluginDescription.Text = selected.Metadata.Description;
 
-            // Get all stored credentials for this plugin
             var allCredentials = DnsSecretStorage.GetCredentialsForPlugin(selected.Metadata.Id);
 
-            // If there are saved credentials, show a selector
             if (allCredentials.Count > 0)
             {
                 var selectLabel = new System.Windows.Controls.TextBlock
@@ -788,12 +776,10 @@ namespace ACMECertManager
                 {
                     if (credentialCombo.SelectedItem is ComboBoxItem item && item.Tag is DnsSecretCredential selectedCred)
                     {
-                        // Pre-populate fields from selected credential
                         PopulateDnsFieldsFromCredential(selected, selectedCred.Values);
                     }
                     else
                     {
-                        // Clear fields for new credentials
                         ClearDnsFields(selected);
                     }
                 };
@@ -801,7 +787,6 @@ namespace ACMECertManager
                 pnlDnsFields.Children.Add(credentialCombo);
             }
 
-            // Build the input fields
             var savedValues = DnsSecretStorage.GetForPlugin(selected.Metadata.Id);
 
             foreach (var field in selected.Instance.GetCredentialFields())
@@ -968,7 +953,6 @@ namespace ACMECertManager
                 var app = (App)Application.Current;
                 app.SetMaxLogFileSizeMb(sizeMb);
 
-                // Update LogManager with new size limit
                 if (_logManager != null)
                 {
                     _logManager.Dispose();
@@ -1023,7 +1007,6 @@ namespace ACMECertManager
 
                 var sb = new System.Text.StringBuilder();
 
-                // Load the most recent log file (main log)
                 if (File.Exists(logFiles[0]))
                 {
                     try
@@ -1033,15 +1016,12 @@ namespace ACMECertManager
                     }
                     catch (IOException)
                     {
-                        // Skip if we can't read
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        // Skip if we can't read
                     }
                     catch (System.Security.SecurityException)
                     {
-                        // Skip if we can't read
                     }
                 }
 
@@ -1055,15 +1035,12 @@ namespace ACMECertManager
             }
             catch (IOException)
             {
-                // Silently fail if we can't load persisted logs
             }
             catch (UnauthorizedAccessException)
             {
-                // Silently fail if we can't load persisted logs
             }
             catch (System.Security.SecurityException)
             {
-                // Silently fail if we can't load persisted logs
             }
         }
 
@@ -1082,15 +1059,12 @@ namespace ACMECertManager
             }
             catch (IOException)
             {
-                // Silently fail
             }
             catch (UnauthorizedAccessException)
             {
-                // Silently fail
             }
             catch (ObjectDisposedException)
             {
-                // Silently fail
             }
         }
 
