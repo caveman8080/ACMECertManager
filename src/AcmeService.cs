@@ -263,7 +263,13 @@ namespace ACMECertManager
                     pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
                     log?.Invoke("[CERT] PFX file built successfully");
                 }
-                catch (Exception ex)
+                catch (CryptographicException ex)
+                {
+                    log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
+                    pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
+                    log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
+                }
+                catch (InvalidOperationException ex)
                 {
                     log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
                     pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
