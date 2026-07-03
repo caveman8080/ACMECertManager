@@ -76,8 +76,9 @@ namespace ACMECertManager
             {
                 _logManager?.WriteLog(message);
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException ex)
             {
+                Debug.WriteLine($"LogManager disposed while writing log entry: {ex.Message}");
             }
 
             UpdateLogStatistics();
