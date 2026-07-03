@@ -1015,14 +1015,17 @@ namespace ACMECertManager
                         var content = File.ReadAllText(logFiles[0]);
                         sb.Append(content);
                     }
-                    catch (IOException)
+                    catch (IOException ex)
                     {
+                        _logger?.LogWarning(ex, "Failed to read persisted log file due to I/O error: {LogFilePath}", logFiles[0]);
                     }
-                    catch (UnauthorizedAccessException)
+                    catch (UnauthorizedAccessException ex)
                     {
+                        _logger?.LogWarning(ex, "Access denied while reading persisted log file: {LogFilePath}", logFiles[0]);
                     }
-                    catch (System.Security.SecurityException)
+                    catch (System.Security.SecurityException ex)
                     {
+                        _logger?.LogWarning(ex, "Security error while reading persisted log file: {LogFilePath}", logFiles[0]);
                     }
                 }
 
@@ -1034,14 +1037,17 @@ namespace ACMECertManager
 
                 UpdateLogStatistics();
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                _logger?.LogWarning(ex, "I/O error occurred while loading persisted logs.");
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                _logger?.LogWarning(ex, "Access denied while loading persisted logs.");
             }
-            catch (System.Security.SecurityException)
+            catch (System.Security.SecurityException ex)
             {
+                _logger?.LogWarning(ex, "Security error while loading persisted logs.");
             }
         }
 
@@ -1058,14 +1064,17 @@ namespace ACMECertManager
 
                 txtLogStats.Text = $"📊 Total: {totalSize:N0} bytes ({sizeMb:F2} MB) | Current: {currentSizeMb:F2} MB | Files: {fileCount}";
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                _logger?.LogWarning(ex, "I/O error occurred while updating log statistics.");
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                _logger?.LogWarning(ex, "Access denied while updating log statistics.");
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException ex)
             {
+                _logger?.LogWarning(ex, "Log manager was disposed while updating log statistics.");
             }
         }
 
