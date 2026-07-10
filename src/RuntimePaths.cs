@@ -84,7 +84,23 @@ namespace ACMECertManager
                 File.Move(legacyPath, productionAccountPath);
                 migrated.Add("Moved legacy acme-account.json to acme-account-production.pem (environment-specific accounts).");
             }
-            catch (Exception ex)
+            catch (IOException ex)
+            {
+                migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
+            }
+            catch (NotSupportedException ex)
+            {
+                migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
+            }
+            catch (PathTooLongException ex)
             {
                 migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
             }
