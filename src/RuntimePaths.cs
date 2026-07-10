@@ -100,10 +100,6 @@ namespace ACMECertManager
             {
                 migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
             }
-            catch (PathTooLongException ex)
-            {
-                migrated.Add($"Failed to migrate legacy account file: {ex.Message}");
-            }
         }
 
         // Local copy of the production URL to avoid cross-file dependency in this static class
