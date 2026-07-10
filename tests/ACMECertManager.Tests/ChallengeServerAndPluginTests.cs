@@ -147,8 +147,14 @@ public sealed class ChallengeServerAndPluginTests
     public void HttpChallengeServer_Dispose_IsIdempotent()
     {
         var server = new HttpChallengeServer("token", "token.key");
-        server.Dispose();
-        server.Dispose();
+        try
+        {
+            server.Dispose();
+        }
+        finally
+        {
+            server.Dispose();
+        }
     }
 
     [Fact]
