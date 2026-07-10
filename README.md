@@ -90,7 +90,7 @@ Simple update steps:
 What is preserved on upgrade (if you keep the same folder):
 - certs/ (issued certificate files)
 - storage/certificates.json (certificate list/metadata)
-- storage/acme-account.json (ACME account key)
+- **storage/acme-account-production.pem** and **storage/acme-account-staging.pem** (environment-specific ACME account keys)
 - storage/dns-secrets.json (saved DNS plugin credentials)
 - storage/ui-settings.json (UI settings)
 - logs/ (log history)
