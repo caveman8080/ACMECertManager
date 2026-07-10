@@ -113,4 +113,50 @@ public sealed class ValidationMethodAndTlsTests
         Assert.Contains("port 443", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Same(inner, result.InnerException);
     }
+
+    [Fact]
+    public void HttpChallengeServer_TranslateListenerStartException_AccessDenied_ContainsPortAndAdminGuidance()
+    {
+        var inner = CreateHttpListenerException(nativeErrorCode: 5, message: "Access is denied");
+
+        var result = HttpChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 80", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("access was denied", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Administrator", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
+    }
+
+    [Fact]
+    public void HttpChallengeServer_TranslateListenerStartException_AlreadyInUse_ContainsPortInUseMessage()
+    {
+        var inner = CreateHttpListenerException(nativeErrorCode: 32, message: "The process cannot access the file because it is being used by another process.");
+
+        var result = HttpChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 80", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already in use", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
+    }
+
+    [Fact]
+    public void HttpChallengeServer_TranslateListenerStartException_OtherError_IncludesOriginalMessage()
+    {
+        var inner = CreateHttpListenerException(nativeErrorCode: 1234, message: "unexpected listener failure");
+
+        var result = HttpChallengeServer.TranslateListenerStartException(inner);
+
+        Assert.IsType<InvalidOperationException>(result);
+        Assert.Contains("port 80", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unexpected listener failure", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Same(inner, result.InnerException);
+    }
+
+    private static System.Net.HttpListenerException CreateHttpListenerException(int nativeErrorCode, string message)
+    {
+        // HttpListenerException(errorCode, message) sets NativeErrorCode/ErrorCode from errorCode.
+        return new System.Net.HttpListenerException(nativeErrorCode, message);
+    }
 }

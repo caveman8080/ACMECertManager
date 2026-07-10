@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Text.Json;
+using Certes;
+using Certes.Acme;
 using Xunit;
 using ACMECertManager;
 
@@ -9,6 +12,24 @@ namespace ACMECertManager.Tests;
 
 public sealed class StorageAndModelTests
 {
+    [Fact]
+    public void FormatAcmeException_IncludesErrorDetailWhenPresent()
+    {
+        var error = new AcmeError
+        {
+            Type = "urn:ietf:params:acme:error:rateLimited",
+            Detail = "too many requests",
+            Status = HttpStatusCode.TooManyRequests
+        };
+        var ex = new AcmeRequestException("Fail to load resource from 'https://example.test/order'.", error);
+
+        var formatted = AcmeService.FormatAcmeException(ex);
+
+        Assert.Contains("Fail to load resource", formatted, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rateLimited", formatted, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("too many requests", formatted, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void ParseHttpDeploymentMethod_ReturnsExpectedValue()
     {

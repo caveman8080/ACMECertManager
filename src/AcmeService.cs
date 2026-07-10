@@ -60,6 +60,62 @@ namespace ACMECertManager
         public required IReadOnlyDictionary<string, string> Credentials { get; init; }
     }
 
+    /// <summary>
+    /// Certificate private-key algorithms supported for ACME finalization.
+    /// Maps to Certes <see cref="KeyAlgorithm"/> values.
+    /// </summary>
+    public enum CertificateKeyAlgorithm
+    {
+        RS256,
+        ES256,
+        ES384
+    }
+
+    /// <summary>
+    /// Shared HttpClient factory with pooled handlers for deployment/probe traffic.
+    /// Clients are long-lived; callers must not dispose them and should attach auth per-request.
+    /// </summary>
+    internal static class AcmeHttpClientFactory
+    {
+        private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+
+        private static readonly SocketsHttpHandler SharedHandler = CreateHandler(skipTlsValidation: false);
+        private static readonly SocketsHttpHandler InsecureHandler = CreateHandler(skipTlsValidation: true);
+
+        private static readonly HttpClient SharedClient = CreateClient(SharedHandler);
+        private static readonly HttpClient InsecureClient = CreateClient(InsecureHandler);
+
+        public static HttpClient GetClient(bool skipTlsValidation) =>
+            skipTlsValidation ? InsecureClient : SharedClient;
+
+        private static SocketsHttpHandler CreateHandler(bool skipTlsValidation)
+        {
+            var handler = new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+                MaxConnectionsPerServer = 20,
+                ConnectTimeout = TimeSpan.FromSeconds(10)
+            };
+
+            if (skipTlsValidation)
+            {
+                handler.SslOptions = new SslClientAuthenticationOptions
+                {
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                };
+            }
+
+            return handler;
+        }
+
+        private static HttpClient CreateClient(HttpMessageHandler handler) =>
+            new(handler, disposeHandler: false)
+            {
+                Timeout = RequestTimeout
+            };
+    }
+
     public class AcmeService
     {
         public const string LetsEncryptProductionDirectoryUrl = "https://acme-v02.api.letsencrypt.org/directory";
@@ -68,6 +124,10 @@ namespace ACMECertManager
         private static readonly TimeSpan DefaultPollDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MaxWaitForAuthorization = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan MaxWaitForOrderReady = TimeSpan.FromMinutes(2);
+        // Post-finalize: CA may keep the order in Processing while issuing the cert.
+        private static readonly TimeSpan MaxWaitForOrderValid = TimeSpan.FromMinutes(3);
+        // Certes Generate default retryCount is 1; use a higher budget for Processing.
+        private const int CertificateGenerateRetryCount = 60;
         private static readonly HashSet<string> ReservedWindowsFileNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "CON", "PRN", "AUX", "NUL",
@@ -83,6 +143,7 @@ namespace ACMECertManager
             HttpChallengeDeploymentOptions? httpDeployment,
             DnsPluginExecution? dnsPlugin,
             bool createPfxFile,
+            CertificateKeyAlgorithm keyAlgorithm = CertificateKeyAlgorithm.RS256,
             Action<string>? log = null)
         {
             RuntimePaths.EnsureRequiredDirectories();
@@ -145,14 +206,36 @@ namespace ACMECertManager
             }
 
             log?.Invoke("[ACME] Creating new order with ACME server...");
-            var order = await acme.NewOrder(domains);
+            IOrderContext order;
+            try
+            {
+                order = await acme.NewOrder(domains);
+            }
+            catch (AcmeException ex)
+            {
+                throw CreateAcmeOperationException("create ACME order", ex);
+            }
+
             log?.Invoke("[ACME] Order created successfully");
 
+            IReadOnlyList<IAuthorizationContext> authorizations;
+            try
+            {
+                // Load authorizations once. Each Authorizations() call re-POSTs the order resource.
+                authorizations = (await LoadOrderAuthorizationsAsync(order, log)).ToList();
+            }
+            catch (AcmeException ex)
+            {
+                throw CreateAcmeOperationException("load ACME order authorizations", ex);
+            }
+
+            log?.Invoke($"[ACME] Order contains {authorizations.Count} authorization(s)");
+
             var authorizationIndex = 0;
-            foreach (var authz in await order.Authorizations())
+            foreach (var authz in authorizations)
             {
                 authorizationIndex++;
-                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {(await order.Authorizations()).Count()}");
+                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {authorizations.Count}");
 
                 if (validationMethod == ChallengeValidationMethod.Http01)
                 {
@@ -245,23 +328,53 @@ namespace ACMECertManager
             log?.Invoke("[ACME] Order is ready for finalization");
 
             // Generate cert
-            log?.Invoke("[CERT] Generating new private key (RS256)...");
-            var privateKey = KeyFactory.NewKey(KeyAlgorithm.RS256);
+            var certesKeyAlgorithm = ToCertesKeyAlgorithm(keyAlgorithm);
+            log?.Invoke($"[CERT] Generating new private key ({keyAlgorithm})...");
+            var privateKey = KeyFactory.NewKey(certesKeyAlgorithm);
             CertificateChain cert;
             try
             {
-                log?.Invoke("[CERT] Creating certificate signing request...");
-                cert = await order.Generate(new CsrInfo
-                {
-                    CommonName = domains[0]
-                }, privateKey);
+                log?.Invoke("[CERT] Creating certificate signing request and finalizing order...");
+                // Certes Generate finalizes then downloads. Default retryCount is only 1 while the
+                // order is Processing; Let's Encrypt commonly needs longer before the cert is ready.
+                cert = await order.Generate(
+                    new CsrInfo
+                    {
+                        CommonName = domains[0]
+                    },
+                    privateKey,
+                    preferredChain: null,
+                    retryCount: CertificateGenerateRetryCount);
                 log?.Invoke("[CERT] Certificate generated successfully from ACME server");
             }
             catch (AcmeException ex)
             {
-                var details = await BuildOrderFailureDetailsAsync(order);
-                log?.Invoke($"[CERT] ❌ Certificate generation failed: {details}");
-                throw new InvalidOperationException($"Fail to finalize order. {details}", ex);
+                // Certes may throw while the order is still Processing (cert not ready yet),
+                // or after a transient download failure once the order is already Valid.
+                var orderResource = await order.Resource();
+                if (orderResource.Status is OrderStatus.Processing or OrderStatus.Valid)
+                {
+                    log?.Invoke(
+                        $"[CERT] Generate reported an error while order is {orderResource.Status} ({ex.Message}); " +
+                        "waiting for certificate to become available...");
+                    try
+                    {
+                        cert = await WaitForOrderValidAndDownloadAsync(order, log);
+                        log?.Invoke("[CERT] Certificate downloaded successfully after post-finalize wait");
+                    }
+                    catch (Exception downloadEx) when (downloadEx is not OperationCanceledException)
+                    {
+                        var details = await BuildOrderFailureDetailsAsync(order);
+                        log?.Invoke($"[CERT] ❌ Certificate generation failed: {details} Fallback: {downloadEx.Message}");
+                        throw new InvalidOperationException($"Fail to finalize order. {details}", ex);
+                    }
+                }
+                else
+                {
+                    var details = await BuildOrderFailureDetailsAsync(order);
+                    log?.Invoke($"[CERT] ❌ Certificate generation failed: {details}");
+                    throw new InvalidOperationException($"Fail to finalize order. {details}", ex);
+                }
             }
 
             var leafCertificatePem = cert.Certificate.ToPem();
@@ -277,24 +390,7 @@ namespace ACMECertManager
             if (createPfxFile)
             {
                 log?.Invoke("[CERT] Building PFX certificate file...");
-                byte[] pfxBytes;
-                try
-                {
-                    pfxBytes = cert.ToPfx(privateKey).Build(domains[0], null);
-                    log?.Invoke("[CERT] PFX file built successfully");
-                }
-                catch (CryptographicException ex)
-                {
-                    log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
-                    pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
-                    log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
-                }
-                catch (InvalidOperationException ex)
-                {
-                    log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
-                    pfxBytes = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
-                    log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
-                }
+                var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
 
                 pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
                 log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
@@ -302,11 +398,14 @@ namespace ACMECertManager
                 log?.Invoke("[CERT] PFX file saved successfully");
             }
 
+            var expires = GetCertificateNotAfterUtc(leafCertificatePem);
+            log?.Invoke($"[CERT] Certificate NotAfter (UTC): {expires:yyyy-MM-dd HH:mm:ss}");
+
             log?.Invoke("[ACME] ✅ Certificate issuance completed successfully");
             return new CertificateModel
             {
                 Domain = string.Join(", ", domains),
-                Expires = DateTime.UtcNow.AddDays(90),
+                Expires = expires,
                 Status = "Valid",
                 PfxPath = pfxPath,
                 OutputDirectory = certificateOutputDirectory,
@@ -327,6 +426,47 @@ namespace ACMECertManager
                 ChallengeValidationMethod.TlsAlpn01 => "TLS-ALPN-01",
                 _ => "DNS-01"
             };
+        }
+
+        internal static CertificateKeyAlgorithm ParseKeyAlgorithm(string? raw)
+        {
+            if (Enum.TryParse<CertificateKeyAlgorithm>(raw, ignoreCase: true, out var parsed))
+            {
+                return parsed;
+            }
+
+            return CertificateKeyAlgorithm.RS256;
+        }
+
+        internal static KeyAlgorithm ToCertesKeyAlgorithm(CertificateKeyAlgorithm algorithm)
+        {
+            return algorithm switch
+            {
+                CertificateKeyAlgorithm.ES256 => KeyAlgorithm.ES256,
+                CertificateKeyAlgorithm.ES384 => KeyAlgorithm.ES384,
+                _ => KeyAlgorithm.RS256
+            };
+        }
+
+        /// <summary>
+        /// Parses the leaf certificate PEM and returns its NotAfter timestamp in UTC.
+        /// Falls back to UtcNow+90 days only if the PEM cannot be parsed.
+        /// </summary>
+        internal static DateTime GetCertificateNotAfterUtc(string leafCertificatePem)
+        {
+            try
+            {
+                using var certificate = X509Certificate2.CreateFromPem(leafCertificatePem);
+                return DateTime.SpecifyKind(certificate.NotAfter.ToUniversalTime(), DateTimeKind.Utc);
+            }
+            catch (CryptographicException)
+            {
+                return DateTime.UtcNow.AddDays(90);
+            }
+            catch (ArgumentException)
+            {
+                return DateTime.UtcNow.AddDays(90);
+            }
         }
 
         private static async Task HandleTlsAuthorizationAsync(
@@ -502,11 +642,12 @@ namespace ACMECertManager
                 case HttpChallengeDeploymentMethod.WebDav:
                     EnsureRequiredTarget(options.Target, "WebDav target URL");
                     var webDavUrl = CombineUrl(options.Target, token);
-                    using (var client = CreateHttpClient(options.SkipTlsCertificateValidation))
                     {
-                        ApplyHttpAuthentication(client, options);
+                        var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
                         using var content = new StringContent(keyAuthorization + Environment.NewLine, Encoding.UTF8, "text/plain");
-                        using var response = await client.PutAsync(webDavUrl, content);
+                        using var request = new HttpRequestMessage(HttpMethod.Put, webDavUrl) { Content = content };
+                        ApplyHttpAuthentication(request, options);
+                        using var response = await client.SendAsync(request);
                         response.EnsureSuccessStatusCode();
                     }
 
@@ -585,10 +726,10 @@ namespace ACMECertManager
                     break;
 
                 case HttpChallengeDeploymentMethod.WebDav:
-                    using (var client = CreateHttpClient(options.SkipTlsCertificateValidation))
                     {
-                        ApplyHttpAuthentication(client, options);
+                        var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
                         using var request = new HttpRequestMessage(HttpMethod.Delete, deploymentKey);
+                        ApplyHttpAuthentication(request, options);
                         using var response = await client.SendAsync(request);
                         if (response.StatusCode != HttpStatusCode.NotFound)
                         {
@@ -622,7 +763,7 @@ namespace ACMECertManager
 
             try
             {
-                using var client = CreateHttpClient(false);
+                var client = AcmeHttpClientFactory.GetClient(skipTlsValidation: false);
                 using var response = await client.GetAsync(probeUrl);
                 var content = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode &&
@@ -664,15 +805,7 @@ namespace ACMECertManager
             string keyAuthorization,
             string identifier)
         {
-            using var client = CreateHttpClient(options.SkipTlsCertificateValidation);
-            ApplyHttpAuthentication(client, options);
-
-            if (!string.IsNullOrWhiteSpace(options.AdditionalHeaderName) &&
-                !string.IsNullOrWhiteSpace(options.AdditionalHeaderValue))
-            {
-                client.DefaultRequestHeaders.Remove(options.AdditionalHeaderName);
-                client.DefaultRequestHeaders.TryAddWithoutValidation(options.AdditionalHeaderName, options.AdditionalHeaderValue);
-            }
+            var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
 
             var method = string.IsNullOrWhiteSpace(options.RestMethod) ? "POST" : options.RestMethod;
             using var request = new HttpRequestMessage(new HttpMethod(method), options.Target)
@@ -680,41 +813,35 @@ namespace ACMECertManager
                 Content = new StringContent(BuildRestPayloadJson(action, identifier, token, keyAuthorization), Encoding.UTF8, "application/json")
             };
 
+            ApplyHttpAuthentication(request, options);
+
+            if (!string.IsNullOrWhiteSpace(options.AdditionalHeaderName) &&
+                !string.IsNullOrWhiteSpace(options.AdditionalHeaderValue))
+            {
+                request.Headers.TryAddWithoutValidation(options.AdditionalHeaderName, options.AdditionalHeaderValue);
+            }
+
             using var response = await client.SendAsync(request);
             response.EnsureSuccessStatusCode();
         }
 
-        private static void ApplyHttpAuthentication(HttpClient client, HttpChallengeDeploymentOptions options)
+        /// <summary>
+        /// Applies authentication headers to a single request so shared HttpClient instances
+        /// are not mutated with per-call credentials.
+        /// </summary>
+        private static void ApplyHttpAuthentication(HttpRequestMessage request, HttpChallengeDeploymentOptions options)
         {
             if (!string.IsNullOrWhiteSpace(options.BearerToken))
             {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.BearerToken);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.BearerToken);
                 return;
             }
 
             if (!string.IsNullOrWhiteSpace(options.Username) || !string.IsNullOrWhiteSpace(options.Password))
             {
                 var raw = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{options.Username}:{options.Password}"));
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", raw);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Basic", raw);
             }
-        }
-
-        private static HttpClient CreateHttpClient(bool skipTlsValidation)
-        {
-            if (!skipTlsValidation)
-            {
-                return new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            }
-
-            var handler = new HttpClientHandler
-            {
-                ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
-            };
-
-            return new HttpClient(handler, disposeHandler: true)
-            {
-                Timeout = TimeSpan.FromSeconds(15)
-            };
         }
 
         private static string CombineUrl(string baseUrl, string segment)
@@ -1009,6 +1136,37 @@ namespace ACMECertManager
             return certificateWithKey.Export(X509ContentType.Pfx);
         }
 
+        /// <summary>
+        /// Builds a PFX from the Certes certificate chain. When Certes cannot resolve intermediate/root
+        /// issuers (common with staging chains), falls back to a leaf-only PFX export.
+        /// </summary>
+        private static byte[] BuildPfxBytes(
+            CertificateChain certificateChain,
+            IKey privateKey,
+            string friendlyName,
+            string leafCertificatePem,
+            string privateKeyPem,
+            Action<string>? log)
+        {
+            try
+            {
+                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, null);
+                log?.Invoke("[CERT] PFX file built successfully");
+                return pfxBytes;
+            }
+            catch (Exception ex) when (
+                ex is CryptographicException ||
+                ex is InvalidOperationException ||
+                ex is AcmeException ||
+                IsIssuerResolutionFailure(ex))
+            {
+                log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
+                var fallback = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
+                log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
+                return fallback;
+            }
+        }
+
         private static string TryGetFullChainPem(CertificateChain certificateChain, string leafCertificatePem, Action<string>? log)
         {
             try
@@ -1202,6 +1360,150 @@ namespace ACMECertManager
             throw new TimeoutException("Timed out waiting for ACME order to become ready for finalization.");
         }
 
+        /// <summary>
+        /// Loads order authorizations with a short retry for transient ACME resource fetch failures.
+        /// Certes Authorizations() always re-POSTs the order resource.
+        /// </summary>
+        private static async Task<IEnumerable<IAuthorizationContext>> LoadOrderAuthorizationsAsync(
+            IOrderContext order,
+            Action<string>? log)
+        {
+            const int maxAttempts = 4;
+            Exception? lastError = null;
+
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    return await order.Authorizations();
+                }
+                catch (AcmeRequestException ex) when (attempt < maxAttempts && IsTransientAcmeRequestFailure(ex))
+                {
+                    lastError = ex;
+                    var delay = TimeSpan.FromSeconds(attempt * 2);
+                    log?.Invoke(
+                        $"[ACME] Transient failure loading order authorizations " +
+                        $"(attempt {attempt}/{maxAttempts}): {FormatAcmeException(ex)}. Retrying in {delay.TotalSeconds:0}s...");
+                    await Task.Delay(delay);
+                }
+            }
+
+            throw lastError ?? new InvalidOperationException("Failed to load ACME order authorizations.");
+        }
+
+        private static bool IsTransientAcmeRequestFailure(AcmeRequestException ex)
+        {
+            // Certes wraps many HTTP/ACME failures as "Fail to load resource from '{url}'.".
+            // Retry on rate limits, server errors, and generic resource-load failures without a permanent ACME type.
+            var status = ex.Error?.Status;
+            if (status is HttpStatusCode.TooManyRequests or
+                HttpStatusCode.RequestTimeout or
+                HttpStatusCode.BadGateway or
+                HttpStatusCode.ServiceUnavailable or
+                HttpStatusCode.GatewayTimeout or
+                HttpStatusCode.InternalServerError)
+            {
+                return true;
+            }
+
+            var type = ex.Error?.Type ?? string.Empty;
+            if (type.Contains("rateLimited", StringComparison.OrdinalIgnoreCase) ||
+                type.Contains("serverInternal", StringComparison.OrdinalIgnoreCase) ||
+                type.Contains("badNonce", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Permanent client errors should not be retried.
+            if (status is HttpStatusCode.BadRequest or
+                HttpStatusCode.Unauthorized or
+                HttpStatusCode.Forbidden or
+                HttpStatusCode.NotFound or
+                HttpStatusCode.Conflict or
+                HttpStatusCode.UnsupportedMediaType)
+            {
+                return false;
+            }
+
+            return ex.Message.Contains("Fail to load resource", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static InvalidOperationException CreateAcmeOperationException(string operation, AcmeException ex)
+        {
+            var details = FormatAcmeException(ex);
+            return new InvalidOperationException($"Failed to {operation}. {details}", ex);
+        }
+
+        internal static string FormatAcmeException(AcmeException ex)
+        {
+            if (ex is AcmeRequestException requestEx && requestEx.Error is not null)
+            {
+                var formatted = FormatAcmeError(requestEx.Error);
+                if (!string.IsNullOrWhiteSpace(formatted) &&
+                    !string.Equals(formatted, "Unknown ACME error", StringComparison.Ordinal))
+                {
+                    return $"{ex.Message} ({formatted})";
+                }
+            }
+
+            if (ex.InnerException is not null && !string.IsNullOrWhiteSpace(ex.InnerException.Message))
+            {
+                return $"{ex.Message} Inner: {ex.InnerException.Message}";
+            }
+
+            return ex.Message;
+        }
+
+        /// <summary>
+        /// After finalize, the CA may leave the order in Processing until the certificate is issued.
+        /// Poll until Valid (or timeout/invalid), then download the certificate chain.
+        /// </summary>
+        private static async Task<CertificateChain> WaitForOrderValidAndDownloadAsync(
+            IOrderContext order,
+            Action<string>? log)
+        {
+            var deadline = DateTimeOffset.UtcNow + MaxWaitForOrderValid;
+            var lastLoggedStatus = (OrderStatus?)null;
+
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                var resource = await order.Resource();
+                var status = resource.Status;
+
+                if (status != lastLoggedStatus)
+                {
+                    log?.Invoke($"[CERT] Waiting for issued certificate; order status: {status}");
+                    lastLoggedStatus = status;
+                }
+
+                if (status == OrderStatus.Valid)
+                {
+                    return await order.Download();
+                }
+
+                if (status == OrderStatus.Invalid)
+                {
+                    var details = await BuildOrderFailureDetailsAsync(order);
+                    throw new InvalidOperationException($"ACME order became invalid after finalization. {details}");
+                }
+
+                // Ready means not yet finalized; Processing means CA is issuing.
+                // Keep polling for both so a late finalize race can still succeed via Download
+                // only when Valid. If still Ready, caller already finalized via Generate.
+                if (status is not (OrderStatus.Processing or OrderStatus.Ready or OrderStatus.Pending))
+                {
+                    var details = await BuildOrderFailureDetailsAsync(order);
+                    throw new InvalidOperationException($"Unexpected ACME order status while waiting for certificate. {details}");
+                }
+
+                await Task.Delay(GetPollDelay(order.RetryAfter));
+            }
+
+            var timeoutDetails = await BuildOrderFailureDetailsAsync(order);
+            throw new TimeoutException(
+                $"Timed out waiting for ACME order to become valid after finalization. {timeoutDetails}");
+        }
+
         private static TimeSpan GetPollDelay(int retryAfterSeconds)
         {
             if (retryAfterSeconds <= 0)
@@ -1248,13 +1550,10 @@ namespace ACMECertManager
             {
                 _listener.Start();
             }
-            catch (HttpListenerException ex) when (ex.NativeErrorCode == 5)
+            catch (HttpListenerException ex)
             {
                 _running = false;
-                throw new InvalidOperationException(
-                    "HTTP-01 validation requires binding to port 80, but access was denied. " +
-                    "Run ACMECertManager as Administrator, or reserve URL ACL for your user (example: " +
-                    "netsh http add urlacl url=http://+:80/.well-known/acme-challenge/ user=%USERNAME%).", ex);
+                throw TranslateListenerStartException(ex);
             }
             _listenerTask = Task.Run(async () =>
             {
@@ -1293,6 +1592,34 @@ namespace ACMECertManager
                     }
                 }
             });
+        }
+
+        /// <summary>
+        /// Translates an <see cref="HttpListenerException"/> from listener start into a user-readable
+        /// <see cref="InvalidOperationException"/>. Internal so unit tests can exercise error paths.
+        /// </summary>
+        internal static InvalidOperationException TranslateListenerStartException(HttpListenerException ex)
+        {
+            // NativeErrorCode 5 = ERROR_ACCESS_DENIED on Windows.
+            if (ex.NativeErrorCode == 5 || ex.ErrorCode == 5)
+            {
+                return new InvalidOperationException(
+                    "HTTP-01 validation requires binding to port 80, but access was denied. " +
+                    "Run ACMECertManager as Administrator, or reserve URL ACL for your user (example: " +
+                    "netsh http add urlacl url=http://+:80/.well-known/acme-challenge/ user=%USERNAME%).", ex);
+            }
+
+            // NativeErrorCode 32 / 183 often indicate the prefix or port is already in use.
+            if (ex.NativeErrorCode is 32 or 183 ||
+                ex.Message.Contains("already", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("conflicts", StringComparison.OrdinalIgnoreCase))
+            {
+                return new InvalidOperationException(
+                    "HTTP-01 validation requires port 80, but the port or URL prefix is already in use by another process.", ex);
+            }
+
+            return new InvalidOperationException(
+                $"Failed to start HTTP-01 listener on port 80: {ex.Message}", ex);
         }
 
         public void Stop() => Dispose();

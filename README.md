@@ -123,8 +123,10 @@ Warning: DNS plugin secrets are currently stored in plaintext in storage/dns-sec
 Saved DNS credentials now default to the current certificate hostname as Domain/Context when available. Blank Domain/Context is only used when no hostname is provided.
 
 Advanced ACME options (Issue New Certificate):
+- Choose private key algorithm: RSA 2048 (RS256, default), ECDSA P-256 (ES256), or ECDSA P-384 (ES384).
 - Use Let's Encrypt staging server for test issuance.
 - Optionally override with a custom ACME directory URL.
+- Certificate expiry is read from the issued certificate's NotAfter value (not a fixed 90-day estimate).
 
 Certificate output and visibility:
 - If PFX output is selected, issuance now validates that certificate.pfx was actually created.

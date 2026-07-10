@@ -470,6 +470,17 @@
                                               Margin="0,0,0,12"
                                               FontSize="13"/>
 
+                                    <TextBlock Text="Private Key Algorithm" FontSize="13" Margin="0,0,0,4" FontWeight="SemiBold"/>
+                                    <ComboBox x:Name="cmbKeyAlgorithm"
+                                              Height="34"
+                                              Margin="0,0,0,12"
+                                              ItemContainerStyle="{StaticResource ReadableComboBoxItemStyle}"
+                                              ToolTip="RSA-2048 (RS256) is widely compatible. ECDSA P-256/P-384 (ES256/ES384) is modern and preferred by many CAs.">
+                                        <ComboBoxItem Tag="RS256" IsSelected="True">RSA 2048 (RS256)</ComboBoxItem>
+                                        <ComboBoxItem Tag="ES256">ECDSA P-256 (ES256)</ComboBoxItem>
+                                        <ComboBoxItem Tag="ES384">ECDSA P-384 (ES384)</ComboBoxItem>
+                                    </ComboBox>
+
                                     <CheckBox x:Name="chkUseStaging"
                                               Content="Use Let's Encrypt staging server (test certificates only)"
                                               Margin="0,0,0,12"
@@ -514,6 +525,13 @@
                             <TextBox x:Name="txtMaxLogFileSizeMb" Width="80" Height="32" FontSize="14" Padding="8,4" VerticalContentAlignment="Center" TextChanged="MaxLogFileSize_Changed"/>
                             <TextBlock Text="(current usage shown in Logs tab)" FontSize="12" VerticalAlignment="Center" Margin="15,0,0,0" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                         </StackPanel>
+
+                        <TextBlock Text="About" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <TextBlock x:Name="txtAppVersion"
+                                   Text="Version v1.3.0"
+                                   FontSize="14"
+                                   Margin="0,0,0,20"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </ScrollViewer>
 

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
@@ -45,6 +46,7 @@ namespace ACMECertManager
             UpdateAdminRelaunchVisibility();
             SetMaxLogFileSizeInput(app.MaxLogFileSizeMb);
             SetAppearanceThemeSelection(app.ThemePreference);
+            SetApplicationVersionText();
 
             _certificates = CertificateStorage.Load();
             LoadCertificatesGrid();
@@ -54,6 +56,41 @@ namespace ACMECertManager
             LoadPersistedLogs();
 
             Log("🚀 ACME Certificate Manager started! Default = production mode");
+        }
+
+        private void SetApplicationVersionText()
+        {
+            if (txtAppVersion is null)
+            {
+                return;
+            }
+
+            txtAppVersion.Text = $"Version {GetApplicationVersionDisplay()}";
+        }
+
+        private static string GetApplicationVersionDisplay()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var informationalVersion = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion;
+
+            if (!string.IsNullOrWhiteSpace(informationalVersion))
+            {
+                var version = informationalVersion.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0];
+                if (!string.IsNullOrWhiteSpace(version))
+                {
+                    return version.StartsWith('v') ? version : $"v{version}";
+                }
+            }
+
+            var assemblyVersion = assembly.GetName().Version;
+            if (assemblyVersion is not null)
+            {
+                return $"v{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
+            }
+
+            return "v1.3.0";
         }
 
         private void InitializeNavigation()
@@ -110,9 +147,11 @@ namespace ACMECertManager
 
                 var httpDeployment = BuildHttpDeploymentOptions(validationMethod);
                 var createPfxFile = chkCreatePfxFile.IsChecked == true;
+                var keyAlgorithm = ResolveSelectedKeyAlgorithm();
 
                 var usingStaging = AcmeService.IsStagingDirectoryUrl(acmeUrl);
                 Log($"Using {(usingStaging ? "STAGING (safe)" : "PRODUCTION")} server");
+                Log($"Private key algorithm: {keyAlgorithm}");
                 if (!string.Equals(acmeUrl, AcmeService.LetsEncryptProductionDirectoryUrl, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(acmeUrl, AcmeService.LetsEncryptStagingDirectoryUrl, StringComparison.OrdinalIgnoreCase))
                 {
@@ -148,7 +187,16 @@ namespace ACMECertManager
                     };
                 }
 
-                var cert = await _acmeService.IssueCertificateAsync(domains, email, acmeUrl, validationMethod, httpDeployment, dnsExecution, createPfxFile, Log);
+                var cert = await _acmeService.IssueCertificateAsync(
+                    domains,
+                    email,
+                    acmeUrl,
+                    validationMethod,
+                    httpDeployment,
+                    dnsExecution,
+                    createPfxFile,
+                    keyAlgorithm,
+                    Log);
 
                 if (createPfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
                 {
@@ -186,6 +234,17 @@ namespace ACMECertManager
                 Log($"❌ Error: {ex.Message}");
                 System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
+            catch (Certes.AcmeException ex)
+            {
+                var message = AcmeService.FormatAcmeException(ex);
+                Log($"❌ ACME Error: {message}");
+                if (ex.StackTrace is not null)
+                {
+                    Log(ex.StackTrace);
+                }
+
+                System.Windows.MessageBox.Show(message, "ACME Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
             catch (IOException ex)
             {
                 Log($"❌ Error: {ex.Message}");
@@ -215,6 +274,16 @@ namespace ACMECertManager
             {
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Unexpected error: {ex.Message}");
+                if (ex.StackTrace is not null)
+                {
+                    Log(ex.StackTrace);
+                }
+
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
 
@@ -646,6 +715,16 @@ namespace ACMECertManager
             }
 
             return HttpChallengeDeploymentMethod.SelfHosted;
+        }
+
+        private CertificateKeyAlgorithm ResolveSelectedKeyAlgorithm()
+        {
+            if (cmbKeyAlgorithm?.SelectedItem is ComboBoxItem item && item.Tag is string raw)
+            {
+                return AcmeService.ParseKeyAlgorithm(raw);
+            }
+
+            return CertificateKeyAlgorithm.RS256;
         }
 
         private bool IsSelectedHttpDeploymentMethod(HttpChallengeDeploymentMethod expected)
