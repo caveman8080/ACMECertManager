@@ -101,13 +101,16 @@ namespace ACMECertManager
             }
             log?.Invoke("[ACME] Account email configured");
 
+            string accountFilePath = RuntimePaths.GetAcmeAccountFile(acmeUrl);
+            bool isStaging = IsStagingDirectoryUrl(acmeUrl);
+
             AcmeContext acme;
 
-            // Account bootstrap: load existing key if present, otherwise create a fresh account key.
-            if (File.Exists(RuntimePaths.AccountFile))
+            // Account bootstrap: use environment-specific account file (production vs staging)
+            if (File.Exists(accountFilePath))
             {
-                log?.Invoke("[ACME] Loading existing account key...");
-                var accountKey = KeyFactory.FromPem(File.ReadAllText(RuntimePaths.AccountFile));
+                log?.Invoke($"[ACME] Loading existing account key from {Path.GetFileName(accountFilePath)}...");
+                var accountKey = KeyFactory.FromPem(File.ReadAllText(accountFilePath));
                 acme = new AcmeContext(new Uri(acmeUrl), accountKey);
 
                 // ACMEv2 servers may require explicit ToS agreement on newAccount.
@@ -117,11 +120,28 @@ namespace ACMECertManager
             }
             else
             {
-                log?.Invoke("[ACME] Creating new ACME account...");
-                acme = new AcmeContext(new Uri(acmeUrl));
-                await acme.NewAccount(email, true);
-                File.WriteAllText(RuntimePaths.AccountFile, acme.AccountKey.ToPem());
-                log?.Invoke("[ACME] New account created and persisted");
+                // Check for legacy single account file and migrate if this is production (previous default)
+                string legacyPath = RuntimePaths.LegacyAccountFile;
+                if (File.Exists(legacyPath) && !isStaging)
+                {
+                    log?.Invoke("[ACME] Migrating legacy account key to production-specific file...");
+                    var legacyPem = File.ReadAllText(legacyPath);
+                    File.WriteAllText(accountFilePath, legacyPem);
+                    try { File.Delete(legacyPath); } catch { /* ignore delete errors */ }
+                    log?.Invoke("[ACME] Legacy account migrated successfully.");
+
+                    var accountKey = KeyFactory.FromPem(legacyPem);
+                    acme = new AcmeContext(new Uri(acmeUrl), accountKey);
+                    await acme.NewAccount(email, true);
+                }
+                else
+                {
+                    log?.Invoke($"[ACME] Creating new ACME account for {(isStaging ? "STAGING" : "PRODUCTION")}...");
+                    acme = new AcmeContext(new Uri(acmeUrl));
+                    await acme.NewAccount(email, true);
+                    File.WriteAllText(accountFilePath, acme.AccountKey.ToPem());
+                    log?.Invoke($"[ACME] New account created and persisted to {Path.GetFileName(accountFilePath)}");
+                }
             }
 
             log?.Invoke("[ACME] Creating new order with ACME server...");
@@ -361,7 +381,7 @@ namespace ACMECertManager
                 exported,
                 (string?)null,
                 X509KeyStorageFlags.EphemeralKeySet);
-        }
+            }
 
         private static async Task HandleHttpAuthorizationAsync(
             IChallengeContext challenge,
@@ -1330,7 +1350,7 @@ namespace ACMECertManager
         }
 
         // Creates a dual-mode IPv6/IPv4 listener on port 443.
-        // Sets ipv4Fallback=true and falls back to IPv4-only when IPv6 is not
+        // Sets ipv4Fallback=true and falls back to IPv4 only when IPv6 is not
         // supported by the OS (AddressFamilyNotSupported). Other SocketExceptions
         // (e.g. access denied, port in use) are not caught here; they propagate
         // from Start() where they are reported with descriptive messages.
