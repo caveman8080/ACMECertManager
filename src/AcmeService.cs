@@ -83,12 +83,9 @@ namespace ACMECertManager
             HttpChallengeDeploymentOptions? httpDeployment,
             DnsPluginExecution? dnsPlugin,
             bool createPfxFile,
-            Action<string>? log = null,
-            CancellationToken cancellationToken = default)
+            Action<string>? log = null)
         {
             RuntimePaths.EnsureRequiredDirectories();
-
-            cancellationToken.ThrowIfCancellationRequested();
 
             log?.Invoke($"[ACME] Starting certificate issuance for domains: {string.Join(", ", domains)}");
             log?.Invoke($"[ACME] ACME Server: {(acmeUrl.Contains("staging") ? "STAGING (safe)" : "PRODUCTION (real)")}");
@@ -116,18 +113,21 @@ namespace ACMECertManager
                 var accountKey = KeyFactory.FromPem(File.ReadAllText(accountFilePath));
                 acme = new AcmeContext(new Uri(acmeUrl), accountKey);
 
+                // ACMEv2 servers may require explicit ToS agreement on newAccount.
+                // With an existing key this call safely returns the existing account if it already exists.
                 await acme.NewAccount(email, true);
                 log?.Invoke("[ACME] Account key loaded and verified with ACME server");
             }
             else
             {
+                // Check for legacy single account file and migrate if this is production (previous default)
                 string legacyPath = RuntimePaths.LegacyAccountFile;
                 if (File.Exists(legacyPath) && !isStaging)
                 {
                     log?.Invoke("[ACME] Migrating legacy account key to production-specific file...");
                     var legacyPem = File.ReadAllText(legacyPath);
                     File.WriteAllText(accountFilePath, legacyPem);
-                    try { File.Delete(legacyPath); } catch { /* ignore */ }
+                    try { File.Delete(legacyPath); } catch { /* ignore delete errors */ }
                     log?.Invoke("[ACME] Legacy account migrated successfully.");
 
                     var accountKey = KeyFactory.FromPem(legacyPem);
@@ -144,8 +144,6 @@ namespace ACMECertManager
                 }
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-
             log?.Invoke("[ACME] Creating new order with ACME server...");
             var order = await acme.NewOrder(domains);
             log?.Invoke("[ACME] Order created successfully");
@@ -156,13 +154,11 @@ namespace ACMECertManager
                 authorizationIndex++;
                 log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {(await order.Authorizations()).Count()}");
 
-                cancellationToken.ThrowIfCancellationRequested();
-
                 if (validationMethod == ChallengeValidationMethod.Http01)
                 {
                     var challenge = await authz.Http();
                     var httpIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                    await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log, cancellationToken);
+                    await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log);
                     continue;
                 }
 
@@ -176,7 +172,7 @@ namespace ACMECertManager
                             $"TLS-ALPN-01 challenge is not available for '{tlsIdentifier}' from this ACME server.");
                     }
 
-                    await HandleTlsAuthorizationAsync(challenge, authz, tlsIdentifier, log, cancellationToken);
+                    await HandleTlsAuthorizationAsync(challenge, authz, tlsIdentifier, log);
                     continue;
                 }
 
@@ -199,14 +195,14 @@ namespace ACMECertManager
 
                 log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
                 log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {dnsIdentifier}");
-                await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, cancellationToken);
+                await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
                 log?.Invoke("[DNS-01] DNS record presented");
 
                 var propagationDelay = GetDnsPropagationDelay(dnsPlugin.Credentials);
                 if (propagationDelay > TimeSpan.Zero)
                 {
                     log?.Invoke($"[DNS-01] Waiting {propagationDelay.TotalSeconds:0} seconds for DNS propagation...");
-                    await Task.Delay(propagationDelay, cancellationToken);
+                    await Task.Delay(propagationDelay);
                 }
 
                 try
@@ -214,7 +210,7 @@ namespace ACMECertManager
                     log?.Invoke("[DNS-01] Sending challenge validation request to ACME server...");
                     await dnsChallenge.Validate();
                     log?.Invoke("[DNS-01] Waiting for ACME server to verify challenge...");
-                    await WaitForAuthorizationValidAsync(authz, cancellationToken);
+                    await WaitForAuthorizationValidAsync(authz);
                     log?.Invoke("[DNS-01] DNS challenge validated successfully");
                 }
                 finally
@@ -222,12 +218,8 @@ namespace ACMECertManager
                     try
                     {
                         log?.Invoke("[DNS-01] Cleaning up DNS record...");
-                        await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, cancellationToken);
+                        await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
                         log?.Invoke("[DNS-01] DNS cleanup completed");
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Cancellation during cleanup is acceptable
                     }
                     catch (HttpRequestException ex)
                     {
@@ -248,10 +240,8 @@ namespace ACMECertManager
                 }
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-
             log?.Invoke("[ACME] All authorizations validated, waiting for order to be ready...");
-            await WaitForOrderReadyAsync(order, cancellationToken);
+            await WaitForOrderReadyAsync(order);
             log?.Invoke("[ACME] Order is ready for finalization");
 
             // Generate cert
@@ -343,8 +333,7 @@ namespace ACMECertManager
             IChallengeContext challenge,
             IAuthorizationContext authz,
             string identifier,
-            Action<string>? log,
-            CancellationToken cancellationToken)
+            Action<string>? log)
         {
             log?.Invoke("[TLS-ALPN-01] Starting temporary TLS challenge server on port 443...");
             using var challengeCertificate = CreateTlsAlpnChallengeCertificate(identifier, challenge.KeyAuthz);
@@ -359,7 +348,7 @@ namespace ACMECertManager
             log?.Invoke("[TLS-ALPN-01] TLS challenge server started, sending challenge validation request...");
             await challenge.Validate();
             log?.Invoke("[TLS-ALPN-01] Waiting for ACME server to verify challenge...");
-            await WaitForAuthorizationValidAsync(authz, cancellationToken);
+            await WaitForAuthorizationValidAsync(authz);
             log?.Invoke("[TLS-ALPN-01] Challenge validated successfully, stopping server...");
             server.Stop();
             log?.Invoke("[TLS-ALPN-01] TLS-ALPN challenge completed");
@@ -392,15 +381,14 @@ namespace ACMECertManager
                 exported,
                 (string?)null,
                 X509KeyStorageFlags.EphemeralKeySet);
-        }
+            }
 
         private static async Task HandleHttpAuthorizationAsync(
             IChallengeContext challenge,
             IAuthorizationContext authz,
             string identifier,
             HttpChallengeDeploymentOptions? options,
-            Action<string>? log,
-            CancellationToken cancellationToken)
+            Action<string>? log)
         {
             var effectiveOptions = options ?? new HttpChallengeDeploymentOptions();
 
@@ -412,32 +400,28 @@ namespace ACMECertManager
                 log?.Invoke("[HTTP-01] HTTP server started, sending challenge validation request...");
                 await challenge.Validate();
                 log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
-                await WaitForAuthorizationValidAsync(authz, cancellationToken);
+                await WaitForAuthorizationValidAsync(authz);
                 log?.Invoke("[HTTP-01] Challenge validated successfully, stopping server...");
                 server.Stop();
                 log?.Invoke("[HTTP-01] HTTP challenge completed");
                 return;
             }
 
-            var deploymentKey = await DeployHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, log, cancellationToken);
+            var deploymentKey = await DeployHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, log);
             try
             {
-                await ProbeHttpChallengeAsync(identifier, challenge.Token, challenge.KeyAuthz, effectiveOptions, log, cancellationToken);
+                await ProbeHttpChallengeAsync(identifier, challenge.Token, challenge.KeyAuthz, effectiveOptions, log);
                 log?.Invoke("[HTTP-01] Sending challenge validation request...");
                 await challenge.Validate();
                 log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
-                await WaitForAuthorizationValidAsync(authz, cancellationToken);
+                await WaitForAuthorizationValidAsync(authz);
                 log?.Invoke("[HTTP-01] Challenge validated successfully");
             }
             finally
             {
                 try
                 {
-                    await CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Acceptable during cancellation
+                    await CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log);
                 }
                 catch (HttpRequestException ex)
                 {
@@ -463,8 +447,7 @@ namespace ACMECertManager
             string keyAuthorization,
             string identifier,
             HttpChallengeDeploymentOptions options,
-            Action<string>? log,
-            CancellationToken cancellationToken)
+            Action<string>? log)
         {
             switch (options.Method)
             {
@@ -472,7 +455,7 @@ namespace ACMECertManager
                     EnsureRequiredTarget(options.Target, "network path");
                     System.IO.Directory.CreateDirectory(options.Target);
                     var path = Path.Join(options.Target, token);
-                    await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine, cancellationToken);
+                    await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine);
                     log?.Invoke($"[HTTP-01] Challenge file written to network/local path: {path}");
                     return path;
 
@@ -488,8 +471,8 @@ namespace ACMECertManager
 
                     await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
                     {
-                        await ftpClient.Connect(cancellationToken);
-                        await ftpClient.UploadBytes(ftpPayload, ftpRemotePath, createRemoteDir: true, token: cancellationToken);
+                        await ftpClient.Connect();
+                        await ftpClient.UploadBytes(ftpPayload, ftpRemotePath, createRemoteDir: true, token: CancellationToken.None);
                         await ftpClient.Disconnect();
                     }
 
@@ -503,7 +486,7 @@ namespace ACMECertManager
                     var remoteDirectory = string.IsNullOrWhiteSpace(sftpUri.AbsolutePath) ? "/" : sftpUri.AbsolutePath;
                     var remoteFilePath = CombineSftpPath(remoteDirectory, token);
 
-                    await Task.Run(async () =>
+                    await Task.Run(() =>
                     {
                         using var client = new SftpClient(sftpUri.Host, sftpUri.Port > 0 ? sftpUri.Port : 22, options.Username, options.Password);
                         client.Connect();
@@ -511,7 +494,7 @@ namespace ACMECertManager
                         using var payload = new MemoryStream(Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine));
                         client.UploadFile(payload, remoteFilePath, true);
                         client.Disconnect();
-                    }, cancellationToken);
+                    });
 
                     log?.Invoke($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}");
                     return remoteFilePath;
@@ -523,7 +506,7 @@ namespace ACMECertManager
                     {
                         ApplyHttpAuthentication(client, options);
                         using var content = new StringContent(keyAuthorization + Environment.NewLine, Encoding.UTF8, "text/plain");
-                        using var response = await client.PutAsync(webDavUrl, content, cancellationToken);
+                        using var response = await client.PutAsync(webDavUrl, content);
                         response.EnsureSuccessStatusCode();
                     }
 
@@ -532,7 +515,7 @@ namespace ACMECertManager
 
                 case HttpChallengeDeploymentMethod.Rest:
                     EnsureRequiredTarget(options.Target, "REST endpoint URL");
-                    await SendRestChallengeRequestAsync(options, "present", token, keyAuthorization, identifier, cancellationToken);
+                    await SendRestChallengeRequestAsync(options, "present", token, keyAuthorization, identifier);
                     log?.Invoke($"[HTTP-01] Presented challenge via REST endpoint: {options.Target}");
                     return options.Target;
 
@@ -547,8 +530,7 @@ namespace ACMECertManager
             string identifier,
             HttpChallengeDeploymentOptions options,
             string deploymentKey,
-            Action<string>? log,
-            CancellationToken cancellationToken)
+            Action<string>? log)
         {
             switch (options.Method)
             {
@@ -571,10 +553,10 @@ namespace ACMECertManager
 
                     await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
                     {
-                        await ftpClient.Connect(cancellationToken);
+                        await ftpClient.Connect();
                         if (await ftpClient.FileExists(ftpRemotePath, CancellationToken.None))
                         {
-                            await ftpClient.DeleteFile(ftpRemotePath, cancellationToken);
+                            await ftpClient.DeleteFile(ftpRemotePath, CancellationToken.None);
                         }
 
                         await ftpClient.Disconnect();
@@ -597,7 +579,7 @@ namespace ACMECertManager
                         }
 
                         client.Disconnect();
-                    }, cancellationToken);
+                    });
 
                     log?.Invoke("[HTTP-01] Removed challenge file from SFTP target");
                     break;
@@ -607,7 +589,7 @@ namespace ACMECertManager
                     {
                         ApplyHttpAuthentication(client, options);
                         using var request = new HttpRequestMessage(HttpMethod.Delete, deploymentKey);
-                        using var response = await client.SendAsync(request, cancellationToken);
+                        using var response = await client.SendAsync(request);
                         if (response.StatusCode != HttpStatusCode.NotFound)
                         {
                             response.EnsureSuccessStatusCode();
@@ -618,7 +600,7 @@ namespace ACMECertManager
                     break;
 
                 case HttpChallengeDeploymentMethod.Rest:
-                    await SendRestChallengeRequestAsync(options, "cleanup", token, keyAuthorization, identifier, cancellationToken);
+                    await SendRestChallengeRequestAsync(options, "cleanup", token, keyAuthorization, identifier);
                     log?.Invoke("[HTTP-01] Cleanup request sent to REST endpoint");
                     break;
             }
@@ -629,8 +611,7 @@ namespace ACMECertManager
             string token,
             string keyAuthorization,
             HttpChallengeDeploymentOptions options,
-            Action<string>? log,
-            CancellationToken cancellationToken)
+            Action<string>? log)
         {
             if (string.IsNullOrWhiteSpace(options.PublicValidationUrlTemplate))
             {
@@ -642,7 +623,7 @@ namespace ACMECertManager
             try
             {
                 using var client = CreateHttpClient(false);
-                using var response = await client.GetAsync(probeUrl, cancellationToken);
+                using var response = await client.GetAsync(probeUrl);
                 var content = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode &&
                     string.Equals(content.Trim(), keyAuthorization.Trim(), StringComparison.Ordinal))
@@ -654,11 +635,11 @@ namespace ACMECertManager
                     log?.Invoke($"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}");
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // Cancellation during probe is fine
-            }
             catch (HttpRequestException ex)
+            {
+                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+            }
+            catch (TaskCanceledException ex)
             {
                 log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
             }
@@ -681,8 +662,7 @@ namespace ACMECertManager
             string action,
             string token,
             string keyAuthorization,
-            string identifier,
-            CancellationToken cancellationToken)
+            string identifier)
         {
             using var client = CreateHttpClient(options.SkipTlsCertificateValidation);
             ApplyHttpAuthentication(client, options);
@@ -700,7 +680,7 @@ namespace ACMECertManager
                 Content = new StringContent(BuildRestPayloadJson(action, identifier, token, keyAuthorization), Encoding.UTF8, "application/json")
             };
 
-            using var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request);
             response.EnsureSuccessStatusCode();
         }
 
@@ -867,16 +847,16 @@ namespace ACMECertManager
             }
         }
 
-        public async Task RevokeCertificateAsync(CertificateModel certificate, CancellationToken cancellationToken = default)
+        public async Task RevokeCertificateAsync(CertificateModel certificate)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
             var acmeUrl = string.IsNullOrWhiteSpace(certificate.AcmeDirectoryUrl)
                 ? LetsEncryptProductionDirectoryUrl
                 : certificate.AcmeDirectoryUrl;
 
             var rawCertificate = LoadCertificateForRevocation(certificate);
 
+            // ACME revocation (Let's Encrypt) requires the certificate's own private key to sign the request.
+            // The account key is not sufficient for standard revocation.
             string? privateKeyPem = null;
             try
             {
@@ -884,11 +864,13 @@ namespace ACMECertManager
             }
             catch (InvalidOperationException)
             {
+                // No private key available; we cannot perform ACME revocation.
                 throw new InvalidOperationException(
                     "Revocation requires the certificate's private key (privkey.pem). " +
                     "The certificate can be deleted locally, but ACME server revocation cannot be performed without the private key.");
             }
 
+            // Create a fresh AcmeContext without an account key; the private key will be used only for the revocation signature.
             var acme = new AcmeContext(new Uri(acmeUrl));
             var certPrivateKey = KeyFactory.FromPem(privateKeyPem);
 
@@ -1165,14 +1147,12 @@ namespace ACMECertManager
             return parts.Count == 0 ? error.ToString() ?? "Unknown ACME error" : string.Join(" | ", parts);
         }
 
-        private static async Task WaitForAuthorizationValidAsync(IAuthorizationContext authz, CancellationToken cancellationToken = default)
+        private static async Task WaitForAuthorizationValidAsync(IAuthorizationContext authz)
         {
             var deadline = DateTimeOffset.UtcNow + MaxWaitForAuthorization;
 
             while (DateTimeOffset.UtcNow < deadline)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 var resource = await authz.Resource();
                 var status = resource.Status;
 
@@ -1190,20 +1170,18 @@ namespace ACMECertManager
                         $"Authorization for '{resource.Identifier?.Value}' failed with status '{status}'.");
                 }
 
-                await Task.Delay(GetPollDelay(authz.RetryAfter), cancellationToken);
+                await Task.Delay(GetPollDelay(authz.RetryAfter));
             }
 
             throw new TimeoutException("Timed out waiting for domain authorization to become valid.");
         }
 
-        private static async Task WaitForOrderReadyAsync(IOrderContext order, CancellationToken cancellationToken = default)
+        private static async Task WaitForOrderReadyAsync(IOrderContext order)
         {
             var deadline = DateTimeOffset.UtcNow + MaxWaitForOrderReady;
 
             while (DateTimeOffset.UtcNow < deadline)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 var resource = await order.Resource();
                 var status = resource.Status;
 
@@ -1218,7 +1196,7 @@ namespace ACMECertManager
                     throw new InvalidOperationException("ACME order became invalid before finalization.");
                 }
 
-                await Task.Delay(GetPollDelay(order.RetryAfter), cancellationToken);
+                await Task.Delay(GetPollDelay(order.RetryAfter));
             }
 
             throw new TimeoutException("Timed out waiting for ACME order to become ready for finalization.");
