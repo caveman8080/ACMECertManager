@@ -188,17 +188,16 @@ namespace ACMECertManager
                     log?.Invoke("[ACME] Migrating legacy account key to production-specific file...");
                     var legacyPem = File.ReadAllText(legacyPath);
                     File.WriteAllText(accountFilePath, legacyPem);
+                    // Best-effort cleanup: ignore delete errors.
                     try
                     {
                         File.Delete(legacyPath);
                     }
                     catch (IOException)
                     {
-                        // Best-effort cleanup: ignore delete errors.
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        // Best-effort cleanup: ignore delete errors.
                     }
                     log?.Invoke("[ACME] Legacy account migrated successfully.");
 
