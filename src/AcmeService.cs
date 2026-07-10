@@ -662,10 +662,6 @@ namespace ACMECertManager
             {
                 log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
             }
-            catch (TaskCanceledException ex)
-            {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
-            }
             catch (IOException ex)
             {
                 log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
