@@ -188,16 +188,18 @@ namespace ACMECertManager
                     log?.Invoke("[ACME] Migrating legacy account key to production-specific file...");
                     var legacyPem = File.ReadAllText(legacyPath);
                     File.WriteAllText(accountFilePath, legacyPem);
-                    // Best-effort cleanup: ignore delete errors.
+                    // Best-effort cleanup: continue on delete errors, but log them.
                     try
                     {
                         File.Delete(legacyPath);
                     }
-                    catch (IOException)
+                    catch (IOException ex)
                     {
+                        log?.Invoke($"[ACME] Warning: failed to delete legacy account file '{legacyPath}' due to I/O error: {ex.Message}");
                     }
-                    catch (UnauthorizedAccessException)
+                    catch (UnauthorizedAccessException ex)
                     {
+                        log?.Invoke($"[ACME] Warning: insufficient permissions to delete legacy account file '{legacyPath}': {ex.Message}");
                     }
                     log?.Invoke("[ACME] Legacy account migrated successfully.");
 
