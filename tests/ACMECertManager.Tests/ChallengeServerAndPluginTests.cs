@@ -139,8 +139,7 @@ public sealed class ChallengeServerAndPluginTests
     public void TlsAlpnChallengeServer_Dispose_IsIdempotent()
     {
         using var certificate = CreateEphemeralSelfSignedCertificate("example.com");
-        var server = new TlsAlpnChallengeServer(certificate);
-        server.Dispose();
+        using var server = new TlsAlpnChallengeServer(certificate);
         server.Dispose();
     }
 
