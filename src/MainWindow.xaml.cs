@@ -275,9 +275,29 @@ namespace ACMECertManager
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                Log($"❌ Unexpected error: {ex.Message}");
+                Log($"❌ Error: {ex.Message}");
+                if (ex.StackTrace is not null)
+                {
+                    Log(ex.StackTrace);
+                }
+
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                if (ex.StackTrace is not null)
+                {
+                    Log(ex.StackTrace);
+                }
+
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
                 if (ex.StackTrace is not null)
                 {
                     Log(ex.StackTrace);
