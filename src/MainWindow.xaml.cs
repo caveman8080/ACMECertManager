@@ -10,11 +10,21 @@ using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Wpf.Ui.Appearance;
+using Wpf.Ui.Controls;
 using Microsoft.Extensions.Logging;
+using Button = System.Windows.Controls.Button;
+using TextBox = System.Windows.Controls.TextBox;
+using TextBlock = System.Windows.Controls.TextBlock;
+using ComboBox = System.Windows.Controls.ComboBox;
+using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
+using MessageBoxResult = System.Windows.MessageBoxResult;
+using Application = System.Windows.Application;
 
 namespace ACMECertManager
 {
@@ -28,7 +38,6 @@ namespace ACMECertManager
         private List<LoadedDnsPlugin> _availablePlugins = new();
         private readonly Dictionary<string, IReadOnlyList<DnsCredentialField>> _pluginFields = new(StringComparer.OrdinalIgnoreCase);
         private bool _isSyncingNavSelection;
-        private readonly Stack<string> _navigationHistory = new();
         private string _currentPageKey = "Manage";
 
         public MainWindow()
@@ -90,7 +99,7 @@ namespace ACMECertManager
                 return $"v{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
             }
 
-            return "v1.3.0";
+            return "v1.4.0";
         }
 
         private void InitializeNavigation()
@@ -100,7 +109,7 @@ namespace ACMECertManager
                 return;
             }
 
-            NavigateToPage("Manage", pushHistory: false);
+            NavigateToPage("Manage");
         }
 
         private void Log(string message)
@@ -127,10 +136,21 @@ namespace ACMECertManager
             {
                 Log("Starting certificate issuance...");
                 var domains = txtDomains.Text.Split(',').Select(d => d.Trim()).Where(d => !string.IsNullOrEmpty(d)).ToArray();
-                if (domains.Length == 0) throw new Exception("Enter at least one domain");
+                if (domains.Length == 0)
+                {
+                    throw new InvalidOperationException("Enter at least one domain.");
+                }
 
-                var email = txtEmail.Text;
-                if (string.IsNullOrEmpty(email)) throw new Exception("Email required");
+                var email = txtEmail.Text?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    throw new InvalidOperationException("Email is required. Enter a contact email for the ACME account before issuing a certificate.");
+                }
+
+                if (!email.Contains('@', StringComparison.Ordinal) || email.StartsWith('@') || email.EndsWith('@'))
+                {
+                    throw new InvalidOperationException("Enter a valid email address (for example, you@example.com).");
+                }
 
                 var acmeUrl = ResolveAcmeDirectoryUrl();
                 var validationMethod = rbDns.IsChecked == true
@@ -163,7 +183,7 @@ namespace ACMECertManager
                 {
                     if (cmbDnsPlugin.SelectedItem is not LoadedDnsPlugin loadedPlugin)
                     {
-                        throw new Exception("Select a DNS plugin before issuing a DNS-01 certificate.");
+                        throw new InvalidOperationException("Select a DNS plugin before issuing a DNS-01 certificate.");
                     }
 
                     var credentials = CollectDnsCredentials(loadedPlugin);
@@ -379,7 +399,7 @@ namespace ACMECertManager
 
                 if (nav.SelectedItem is FrameworkElement selectedElement && selectedElement.Tag is string pageKey)
                 {
-                    NavigateToPage(pageKey, pushHistory: true);
+                    NavigateToPage(pageKey);
                 }
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -388,28 +408,20 @@ namespace ACMECertManager
         {
             if (sender is Wpf.Ui.Controls.NavigationViewItem item && item.Tag is string pageKey)
             {
-                NavigateToPage(pageKey, pushHistory: true);
+                NavigateToPage(pageKey);
             }
         }
 
-
-
-        private void NavigateToPage(string pageKey, bool pushHistory)
+        private void NavigateToPage(string pageKey)
         {
             if (string.IsNullOrWhiteSpace(pageKey))
             {
                 return;
             }
 
-            if (pushHistory && !string.Equals(_currentPageKey, pageKey, StringComparison.Ordinal))
-            {
-                _navigationHistory.Push(_currentPageKey);
-            }
-
             ShowPage(pageKey);
             _currentPageKey = pageKey;
             SelectMenuForPage(pageKey);
-            UpdateBackButtonState();
         }
 
         private void SelectMenuForPage(string pageKey)
@@ -431,26 +443,6 @@ namespace ACMECertManager
             {
                 _isSyncingNavSelection = false;
             }
-        }
-
-
-        private void UpdateBackButtonState()
-        {
-            if (FindName("btnBack") is Button backButton)
-            {
-                backButton.IsEnabled = _navigationHistory.Count > 0;
-            }
-        }
-
-        private void Back_Click(object sender, RoutedEventArgs e)
-        {
-            if (_navigationHistory.Count == 0)
-            {
-                return;
-            }
-
-            var previousPage = _navigationHistory.Pop();
-            NavigateToPage(previousPage, pushHistory: false);
         }
 
         private void ShowPage(string pageKey)
@@ -582,6 +574,84 @@ namespace ACMECertManager
                 Log($"❌ Delete failed: {ex.Message}");
                 MessageBox.Show(ex.Message, "Delete Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void OpenFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgCertificates.SelectedItem is not CertificateModel cert)
+            {
+                MessageBox.Show(
+                    "Select a certificate first.",
+                    "Open Folder",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                var folderPath = ResolveCertificateFolderPath(cert);
+                if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                {
+                    var message = "Certificate folder was not found on disk.";
+                    Log($"❌ Open folder failed for {cert.Domain}: {message}");
+                    MessageBox.Show(message, "Open Folder", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = folderPath,
+                    UseShellExecute = true
+                });
+                Log($"📂 Opened certificate folder for {cert.Domain}: {folderPath}");
+            }
+            catch (Win32Exception ex)
+            {
+                Log($"❌ Open folder failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Open Folder", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Open folder failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Open Folder", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Open folder failed: {ex.Message}");
+                MessageBox.Show(ex.Message, "Open Folder", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private static string? ResolveCertificateFolderPath(CertificateModel cert)
+        {
+            if (!string.IsNullOrWhiteSpace(cert.OutputDirectory) && Directory.Exists(cert.OutputDirectory))
+            {
+                return cert.OutputDirectory;
+            }
+
+            foreach (var filePath in new[]
+                     {
+                         cert.CertificatePemPath,
+                         cert.PrivateKeyPemPath,
+                         cert.FullChainPemPath,
+                         cert.ChainPemPath,
+                         cert.PfxPath
+                     })
+            {
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    continue;
+                }
+
+                var directory = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                {
+                    return directory;
+                }
+            }
+
+            return null;
         }
 
         private static void DeleteCertificateFiles(CertificateModel cert)
@@ -826,19 +896,18 @@ namespace ACMECertManager
                 };
                 pnlDnsFields.Children.Add(selectLabel);
 
-                var credentialCombo = new System.Windows.Controls.ComboBox
+                var credentialCombo = new ComboBox
                 {
                     Height = 34,
                     Margin = new Thickness(0, 0, 0, 12)
                 };
-                credentialCombo.ItemContainerStyle = (Style)FindResource("ReadableComboBoxItemStyle");
 
-                credentialCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "(use new/custom credentials)" });
+                credentialCombo.Items.Add(new ComboBoxItem { Content = "(use new/custom credentials)" });
 
                 foreach (var cred in allCredentials)
                 {
                     var displayName = string.IsNullOrEmpty(cred.Domain) ? "(default)" : cred.Domain;
-                    credentialCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = displayName, Tag = cred });
+                    credentialCombo.Items.Add(new ComboBoxItem { Content = displayName, Tag = cred });
                 }
 
                 credentialCombo.SelectedIndex = 0;
@@ -870,7 +939,7 @@ namespace ACMECertManager
                 };
                 pnlDnsFields.Children.Add(label);
 
-                var input = new System.Windows.Controls.TextBox
+                var input = new TextBox
                 {
                     Height = 34,
                     Padding = new Thickness(8, 4, 8, 4),
@@ -887,12 +956,13 @@ namespace ACMECertManager
 
                 if (!string.IsNullOrWhiteSpace(field.Placeholder))
                 {
-                    pnlDnsFields.Children.Add(new System.Windows.Controls.TextBlock
+                    pnlDnsFields.Children.Add(new TextBlock
                     {
                         Text = field.Placeholder,
                         Margin = new Thickness(0, 2, 0, 6),
                         FontSize = 11,
-                        Foreground = SystemColors.GrayTextBrush
+                        Foreground = TryFindResource("TextFillColorSecondaryBrush") as Brush
+                            ?? SystemColors.GrayTextBrush
                     });
                 }
             }
@@ -1008,29 +1078,37 @@ namespace ACMECertManager
                 return;
             }
 
-            txtMaxLogFileSizeMb.Text = sizeMb.ToString();
+            txtMaxLogFileSizeMb.Value = sizeMb;
         }
 
-        private void MaxLogFileSize_Changed(object sender, TextChangedEventArgs e)
+        private void MaxLogFileSize_ValueChanged(object sender, NumberBoxValueChangedEventArgs e)
         {
-            if (txtMaxLogFileSizeMb is null || string.IsNullOrWhiteSpace(txtMaxLogFileSizeMb.Text))
+            if (txtMaxLogFileSizeMb is null || txtMaxLogFileSizeMb.Value is not double rawValue)
             {
                 return;
             }
 
-            if (int.TryParse(txtMaxLogFileSizeMb.Text, out var sizeMb) && sizeMb > 0)
+            var sizeMb = (int)Math.Round(rawValue);
+            if (sizeMb <= 0)
             {
-                var app = (App)Application.Current;
-                app.SetMaxLogFileSizeMb(sizeMb);
-
-                if (_logManager != null)
-                {
-                    _logManager.Dispose();
-                    _logManager = new LogManager(RuntimePaths.LogsDirectory, sizeMb);
-                }
-
-                Log($"📊 Log file size limit changed to {sizeMb} MB");
+                return;
             }
+
+            var app = (App)Application.Current;
+            if (app.MaxLogFileSizeMb == sizeMb)
+            {
+                return;
+            }
+
+            app.SetMaxLogFileSizeMb(sizeMb);
+
+            if (_logManager != null)
+            {
+                _logManager.Dispose();
+                _logManager = new LogManager(RuntimePaths.LogsDirectory, sizeMb);
+            }
+
+            Log($"📊 Log file size limit changed to {sizeMb} MB");
         }
 
         private void AppearanceTheme_Changed(object sender, SelectionChangedEventArgs e)

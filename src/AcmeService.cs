@@ -392,7 +392,7 @@ namespace ACMECertManager
             var leafCertificatePem = cert.Certificate.ToPem();
             var privateKeyPem = privateKey.ToPem();
             var fullChainPem = TryGetFullChainPem(cert, leafCertificatePem, log);
-            var certificateOutputDirectory = GetCertificateOutputDirectory(domains[0]);
+            var certificateOutputDirectory = GetCertificateOutputDirectory(domains[0], DateTime.Now);
             System.IO.Directory.CreateDirectory(certificateOutputDirectory);
 
             log?.Invoke($"[CERT] Saving certificate files to: {certificateOutputDirectory}");
@@ -996,7 +996,7 @@ namespace ACMECertManager
 
             // ACME revocation (Let's Encrypt) requires the certificate's own private key to sign the request.
             // The account key is not sufficient for standard revocation.
-            string? privateKeyPem = null;
+            string privateKeyPem;
             try
             {
                 privateKeyPem = GetPrivateKeyPemForRevocation(certificate);
@@ -1011,7 +1011,18 @@ namespace ACMECertManager
 
             // Create a fresh AcmeContext without an account key; the private key will be used only for the revocation signature.
             var acme = new AcmeContext(new Uri(acmeUrl));
-            var certPrivateKey = KeyFactory.FromPem(privateKeyPem);
+            IKey certPrivateKey;
+            try
+            {
+                certPrivateKey = KeyFactory.FromPem(privateKeyPem);
+            }
+            catch (Exception ex) when (ex is ArgumentException or CryptographicException or FormatException or InvalidOperationException)
+            {
+                throw new InvalidOperationException(
+                    "Could not load the certificate private key from privkey.pem. " +
+                    "The file may be missing, empty, or not a valid PEM private key.",
+                    ex);
+            }
 
             try
             {
@@ -1024,20 +1035,29 @@ namespace ACMECertManager
             }
         }
 
-        private static byte[] LoadCertificateForRevocation(CertificateModel certificate)
+        /// <summary>
+        /// Loads the leaf certificate DER used for ACME revocation.
+        /// Prefer PFX when present; otherwise load cert.pem as certificate-only PEM.
+        /// Note: CreateFromPemFile(path) with a single argument treats the file as both cert and key,
+        /// so cert-only PEM must be loaded via CreateFromPem(text).
+        /// </summary>
+        internal static byte[] LoadCertificateForRevocation(CertificateModel certificate)
         {
-            if (!string.IsNullOrWhiteSpace(certificate.PfxPath) && File.Exists(certificate.PfxPath))
+            var pfxPath = ResolveExistingPath(certificate.PfxPath, certificate.OutputDirectory, "certificate.pfx");
+            if (!string.IsNullOrWhiteSpace(pfxPath))
             {
                 using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                    certificate.PfxPath,
+                    pfxPath,
                     (string?)null,
                     X509KeyStorageFlags.EphemeralKeySet);
                 return cert.Export(X509ContentType.Cert);
             }
 
-            if (!string.IsNullOrWhiteSpace(certificate.CertificatePemPath) && File.Exists(certificate.CertificatePemPath))
+            var certPemPath = ResolveExistingPath(certificate.CertificatePemPath, certificate.OutputDirectory, "cert.pem");
+            if (!string.IsNullOrWhiteSpace(certPemPath))
             {
-                using var cert = X509Certificate2.CreateFromPemFile(certificate.CertificatePemPath);
+                var certPem = File.ReadAllText(certPemPath);
+                using var cert = X509Certificate2.CreateFromPem(certPem);
                 return cert.Export(X509ContentType.Cert);
             }
 
@@ -1045,14 +1065,22 @@ namespace ACMECertManager
                 "Cannot revoke because certificate file is missing. Expected either certificate.pfx or cert.pem in the certificate output folder.");
         }
 
-        private static string GetPrivateKeyPemForRevocation(CertificateModel certificate)
+        internal static string GetPrivateKeyPemForRevocation(CertificateModel certificate)
         {
-            if (!string.IsNullOrWhiteSpace(certificate.PrivateKeyPemPath) && File.Exists(certificate.PrivateKeyPemPath))
+            var privateKeyPath = ResolveExistingPath(certificate.PrivateKeyPemPath, certificate.OutputDirectory, "privkey.pem");
+            if (!string.IsNullOrWhiteSpace(privateKeyPath))
             {
-                return File.ReadAllText(certificate.PrivateKeyPemPath).Trim();
+                var privateKeyPem = File.ReadAllText(privateKeyPath).Trim();
+                if (string.IsNullOrWhiteSpace(privateKeyPem))
+                {
+                    throw new InvalidOperationException("Private key file privkey.pem is empty.");
+                }
+
+                return privateKeyPem;
             }
 
-            if (!string.IsNullOrWhiteSpace(certificate.PfxPath) && File.Exists(certificate.PfxPath))
+            var pfxPath = ResolveExistingPath(certificate.PfxPath, certificate.OutputDirectory, "certificate.pfx");
+            if (!string.IsNullOrWhiteSpace(pfxPath))
             {
                 throw new InvalidOperationException(
                     "Private key PEM path missing. " +
@@ -1060,6 +1088,25 @@ namespace ACMECertManager
             }
 
             throw new InvalidOperationException("Private key not found for revocation. Expected privkey.pem in certificate folder.");
+        }
+
+        private static string? ResolveExistingPath(string? preferredPath, string? outputDirectory, string fileName)
+        {
+            if (!string.IsNullOrWhiteSpace(preferredPath) && File.Exists(preferredPath))
+            {
+                return preferredPath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                var candidate = Path.Join(outputDirectory, fileName);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         private static string ComputeDnsTxtValue(string keyAuthorization)
@@ -1223,7 +1270,30 @@ namespace ACMECertManager
             return new PemArtifactPaths(certPemPath, chainPemPath, fullchainPemPath, keyPemPath);
         }
 
-        private static string GetCertificateOutputDirectory(string domain)
+        /// <summary>
+        /// Builds the output path as certs/{domain}/{MM-dd-yyyy}/.
+        /// Same-day reissues for the same domain get a numeric suffix (MM-dd-yyyy-2, etc.)
+        /// so existing certificate files are never overwritten.
+        /// </summary>
+        internal static string GetCertificateOutputDirectory(string domain, DateTime? issuedOn = null)
+        {
+            var domainFolder = SanitizeDomainFolderName(domain);
+            var issueDate = issuedOn ?? DateTime.Now;
+            var dateFolder = issueDate.ToString("MM-dd-yyyy");
+            var domainDirectory = Path.Join(RuntimePaths.CertsDirectory, domainFolder);
+            var candidate = Path.Join(domainDirectory, dateFolder);
+
+            var suffix = 2;
+            while (DirectoryContainsEntries(candidate))
+            {
+                candidate = Path.Join(domainDirectory, $"{dateFolder}-{suffix}");
+                suffix++;
+            }
+
+            return candidate;
+        }
+
+        internal static string SanitizeDomainFolderName(string domain)
         {
             var normalizedFolder = domain.Trim();
             if (normalizedFolder.StartsWith("*.", StringComparison.Ordinal))
@@ -1248,7 +1318,17 @@ namespace ACMECertManager
                 sanitized += "_cert";
             }
 
-            return Path.Join(RuntimePaths.CertsDirectory, sanitized);
+            return sanitized;
+        }
+
+        private static bool DirectoryContainsEntries(string path)
+        {
+            if (!System.IO.Directory.Exists(path))
+            {
+                return false;
+            }
+
+            return System.IO.Directory.EnumerateFileSystemEntries(path).Any();
         }
 
         private readonly record struct PemArtifactPaths(

@@ -70,6 +70,132 @@ public sealed class ChallengeServerAndPluginTests
         Assert.InRange(parsed, before.AddDays(89), after.AddDays(91));
     }
 
+    [Theory]
+    [InlineData("nas.yawnee.net", "nas.yawnee.net")]
+    [InlineData("*.example.com", "wildcard.example.com")]
+    [InlineData("CON", "CON_cert")]
+    public void SanitizeDomainFolderName_ReturnsSafeFolderName(string domain, string expected)
+    {
+        var result = AcmeService.SanitizeDomainFolderName(domain);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void GetCertificateOutputDirectory_UsesDomainAndIssueDateFolders()
+    {
+        var issuedOn = new DateTime(2026, 2, 8, 12, 0, 0, DateTimeKind.Local);
+        var path = AcmeService.GetCertificateOutputDirectory("nas.yawnee.net", issuedOn);
+
+        var expected = Path.Join(RuntimePaths.CertsDirectory, "nas.yawnee.net", "02-08-2026");
+        Assert.Equal(expected, path);
+    }
+
+    [Fact]
+    public void GetCertificateOutputDirectory_SameDayReissue_GetsNumericSuffix()
+    {
+        var issuedOn = new DateTime(2026, 3, 15, 9, 0, 0, DateTimeKind.Local);
+        var firstPath = AcmeService.GetCertificateOutputDirectory("reissue.example.com", issuedOn);
+        Directory.CreateDirectory(firstPath);
+        File.WriteAllText(Path.Join(firstPath, "cert.pem"), "placeholder");
+
+        try
+        {
+            var secondPath = AcmeService.GetCertificateOutputDirectory("reissue.example.com", issuedOn);
+            var expected = Path.Join(RuntimePaths.CertsDirectory, "reissue.example.com", "03-15-2026-2");
+            Assert.Equal(expected, secondPath);
+            Assert.NotEqual(firstPath, secondPath);
+        }
+        finally
+        {
+            var domainRoot = Path.Join(RuntimePaths.CertsDirectory, "reissue.example.com");
+            if (Directory.Exists(domainRoot))
+            {
+                Directory.Delete(domainRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LoadCertificateForRevocation_LoadsCertOnlyPemWithoutPrivateKey()
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=revoke-test.example.com", ecdsa, HashAlgorithmName.SHA256);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var certPem = certificate.ExportCertificatePem();
+        var keyPem = ecdsa.ExportPkcs8PrivateKeyPem();
+
+        var outputDirectory = Path.Join(Path.GetTempPath(), "acm-revoke-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outputDirectory);
+        var certPath = Path.Join(outputDirectory, "cert.pem");
+        var keyPath = Path.Join(outputDirectory, "privkey.pem");
+        File.WriteAllText(certPath, certPem);
+        File.WriteAllText(keyPath, keyPem);
+
+        try
+        {
+            var model = new CertificateModel
+            {
+                Domain = "revoke-test.example.com",
+                OutputDirectory = outputDirectory,
+                CertificatePemPath = certPath,
+                PrivateKeyPemPath = keyPath
+            };
+
+            var der = AcmeService.LoadCertificateForRevocation(model);
+            Assert.NotEmpty(der);
+
+            var privateKeyPem = AcmeService.GetPrivateKeyPemForRevocation(model);
+            Assert.Contains("PRIVATE KEY", privateKeyPem, StringComparison.OrdinalIgnoreCase);
+
+            // Single-arg CreateFromPemFile is the historical bug: it expects cert+key in one file.
+            Assert.ThrowsAny<CryptographicException>(() => X509Certificate2.CreateFromPemFile(certPath));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory))
+            {
+                Directory.Delete(outputDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LoadCertificateForRevocation_ResolvesFilesFromOutputDirectoryFallback()
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=fallback.example.com", ecdsa, HashAlgorithmName.SHA256);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+
+        var outputDirectory = Path.Join(Path.GetTempPath(), "acm-revoke-fallback-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outputDirectory);
+        File.WriteAllText(Path.Join(outputDirectory, "cert.pem"), certificate.ExportCertificatePem());
+        File.WriteAllText(Path.Join(outputDirectory, "privkey.pem"), ecdsa.ExportPkcs8PrivateKeyPem());
+
+        try
+        {
+            var model = new CertificateModel
+            {
+                Domain = "fallback.example.com",
+                OutputDirectory = outputDirectory,
+                // Intentionally stale/missing stored paths; loader should fall back to OutputDirectory.
+                CertificatePemPath = Path.Join(outputDirectory, "missing-cert.pem"),
+                PrivateKeyPemPath = Path.Join(outputDirectory, "missing-key.pem")
+            };
+
+            var der = AcmeService.LoadCertificateForRevocation(model);
+            Assert.NotEmpty(der);
+            Assert.Contains("PRIVATE KEY", AcmeService.GetPrivateKeyPemForRevocation(model), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory))
+            {
+                Directory.Delete(outputDirectory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public void KeyFactory_NewKey_SupportsEcdsaAlgorithms()
     {

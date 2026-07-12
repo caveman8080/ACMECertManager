@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using Wpf.Ui.Appearance;
+using Wpf.Ui.Controls;
 using Microsoft.Win32;
 
 namespace ACMECertManager
@@ -45,11 +46,11 @@ namespace ACMECertManager
             switch (themePreference)
             {
                 case "Light":
-                    ApplicationThemeManager.Apply(ApplicationTheme.Light);
+                    ApplicationThemeManager.Apply(ApplicationTheme.Light, WindowBackdropType.Mica, updateAccent: true);
                     ApplyThemeBrushes(darkMode: false);
                     break;
                 case "Dark":
-                    ApplicationThemeManager.Apply(ApplicationTheme.Dark);
+                    ApplicationThemeManager.Apply(ApplicationTheme.Dark, WindowBackdropType.Mica, updateAccent: true);
                     ApplyThemeBrushes(darkMode: true);
                     break;
                 default:
@@ -71,7 +72,6 @@ namespace ACMECertManager
 
         private void ApplyThemeBrushes(bool darkMode)
         {
-
             if (darkMode)
             {
                 SetBrush("WindowBackgroundBrush", 0x18, 0x18, 0x18);
@@ -85,6 +85,10 @@ namespace ACMECertManager
                 SetBrush("NavSelectedBrush", 0x36, 0x8E, 0xF0, 0.28);
                 SetBrush("NavHoverBrush", 0xFF, 0xFF, 0xFF, 0.10);
                 SetBrush("NavSelectedBorderBrush", 0x5A, 0xA6, 0xF6, 0.92);
+                SetBrush("WarningBrush", 0xF7, 0x63, 0x0C);
+                SetBrush("SuccessBrush", 0x10, 0x7C, 0x10);
+                SetBrush("LogBackgroundBrush", 0x12, 0x12, 0x12);
+                SetBrush("LogTextBrush", 0xE0, 0xE0, 0xE0);
             }
             else
             {
@@ -99,6 +103,10 @@ namespace ACMECertManager
                 SetBrush("NavSelectedBrush", 0x1A, 0x73, 0xE8, 0.14);
                 SetBrush("NavHoverBrush", 0x00, 0x00, 0x00, 0.06);
                 SetBrush("NavSelectedBorderBrush", 0x1A, 0x73, 0xE8, 0.7);
+                SetBrush("WarningBrush", 0xC4, 0x2B, 0x1C);
+                SetBrush("SuccessBrush", 0x0F, 0x7B, 0x0F);
+                SetBrush("LogBackgroundBrush", 0xF3, 0xF3, 0xF3);
+                SetBrush("LogTextBrush", 0x1F, 0x1F, 0x1F);
             }
         }
 

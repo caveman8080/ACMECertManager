@@ -129,6 +129,8 @@ Advanced ACME options (Issue New Certificate):
 - Certificate expiry is read from the issued certificate's NotAfter value (not a fixed 90-day estimate).
 
 Certificate output and visibility:
+- Certificate files are saved under `certs/{domain}/{MM-dd-yyyy}/` (for example `certs/nas.yawnee.net/02-08-2026/`).
+- Re-issuing the same domain creates a new dated folder so previous certificate files are preserved.
 - If PFX output is selected, issuance now validates that certificate.pfx was actually created.
 - Issued certificates are persisted to storage/certificates.json and immediately reloaded into the Manage Certificates grid.
 

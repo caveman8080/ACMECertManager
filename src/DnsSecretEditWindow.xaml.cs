@@ -4,6 +4,11 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using TextBox = System.Windows.Controls.TextBox;
+using TextBlock = System.Windows.Controls.TextBlock;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace ACMECertManager
 {
@@ -47,29 +52,25 @@ namespace ACMECertManager
                 var label = new TextBlock
                 {
                     Text = field.IsRequired ? $"{field.Label} *" : field.Label,
-                    Margin = new Thickness(0, 12, 0, 5),
+                    Margin = new Thickness(0, 14, 0, 6),
                     FontSize = 13,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = textBrush
+                    Foreground = TryFindResource("TextFillColorPrimaryBrush") as Brush ?? textBrush
                 };
                 pnlCredentialFields.Children.Add(label);
 
+                // Keep System.Windows.Controls.TextBox for dynamic fields so existing
+                // Text/Password-style handling and dictionary typing stay simple.
                 var input = new TextBox
                 {
-                    Height = 34,
+                    MinHeight = 34,
                     Padding = new Thickness(10, 7, 10, 7),
-                    FontSize = 12,
+                    FontSize = 13,
                     Background = inputBackgroundBrush,
                     Foreground = textBrush,
                     BorderBrush = borderBrush,
                     ToolTip = field.Placeholder
                 };
-
-                if (field.IsSecret)
-                {
-                    // For secret fields, use a PasswordBox alternative via TextBox with masked text
-                    // Note: In a production app, you'd use a proper PasswordBox
-                }
 
                 if (existingCredentials.TryGetValue(field.Name, out var value))
                 {
@@ -84,9 +85,9 @@ namespace ACMECertManager
                     pnlCredentialFields.Children.Add(new TextBlock
                     {
                         Text = field.Placeholder,
-                        Margin = new Thickness(0, 3, 0, 0),
+                        Margin = new Thickness(0, 4, 0, 0),
                         FontSize = 11,
-                        Foreground = secondaryTextBrush
+                        Foreground = TryFindResource("TextFillColorSecondaryBrush") as Brush ?? secondaryTextBrush
                     });
                 }
             }
