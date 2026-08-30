@@ -12,11 +12,6 @@ on:
       - samples/**
       - .github/workflows/**
   pull_request:
-    paths:
-      - src/**
-      - tests/**
-      - samples/**
-      - .github/workflows/**
 
 jobs:
   build-and-test:
