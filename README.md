@@ -101,17 +101,18 @@ What can be lost:
 - If certs/ is missing but storage/certificates.json exists, entries may remain but certificate files referenced by those entries may be missing.
 
 ## DNS-01 Plugin Workflow
-1. Put provider DLLs in plugins/.
-2. Launch the app and open Issue New Certificate.
-3. Select DNS-01 and choose a plugin from the dropdown.
-4. Fill required plugin fields.
-5. Issue certificate.
+1. Download DNS plugins from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) **Releases**.
+2. Drop the plugin DLL(s) into `plugins/` beside `acm.exe`.
+3. Launch the app and open Issue New Certificate.
+4. Select DNS-01 and choose a plugin from the dropdown.
+5. Fill required plugin fields.
+6. Issue certificate.
 
 Operational sequence:
-1. Download the pre-built package for your architecture (x86, x64, ARM64).
+1. Download the pre-built ACMECertManager package for your architecture (x86, x64, ARM64).
 2. Extract the ACMECertManager directory from the archive.
 3. Verify acm.exe, plugins, logs, certs, and storage exist.
-4. Place desired DNS plugin DLLs into plugins/.
+4. Download DNS plugins from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) Releases and drop the DLL files into plugins/.
 5. Start the app to auto-scan and load plugin DLLs.
 6. Choose DNS-01 and select the plugin from the DNS dropdown.
 7. Enter plugin-required credentials and provider data.
@@ -151,7 +152,7 @@ Certificate output and visibility:
 ## CI and Release Workflows
 - `.github/workflows/ci.yml`
 	- Runs on every pull request, and on push to `main`.
-	- Push to `main` is still path-filtered (`src/**`, `tests/**`, `samples/**`, `.github/workflows/**`) so docs-only pushes skip CI.
+	- Push to `main` is still path-filtered (`src/**`, `tests/**`, `.github/workflows/**`) so docs-only pushes skip CI.
 	- Pull requests always run `build-and-test` (required check).
 	- Validates restore, build, and tests only.
 	- Uses .NET 10.
@@ -189,9 +190,9 @@ Version bump guidance:
 - DNS plugin credentials are stored unsecured (plaintext) in `storage/dns-secrets.json`
 
 ## Plugin Development
-See PLUGIN_DEVELOPMENT.md for instructions on building custom DNS plugin DLLs.
+See [PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for instructions on building custom DNS plugin DLLs.
 
-Sample implementation included: samples/HurricaneElectricDnsPlugin
+Ready-made DNS plugins are published from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) Releases. Download a release zip and drop the DLL into `plugins/`.
 
 **License:** GPL v3  
 

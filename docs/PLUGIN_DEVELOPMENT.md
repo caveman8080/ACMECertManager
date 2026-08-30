@@ -133,9 +133,9 @@ The host will surface errors in the UI log and message dialogs.
 2. Copy plugin DLL and its dependency DLLs into plugins/ beside acm.exe.
 3. Launch app and verify plugin appears in DNS plugin dropdown.
 
-## Sample Project In This Repo
-- samples/HurricaneElectricDnsPlugin provides a full DNS-01 sample implementation.
-- It follows the acme.sh dns_he_ddns hook approach for DDNS TXT update with HE DDNS key.
+## Published Plugins
+Pre-built DNS-01 plugins are distributed from https://github.com/caveman8080/ACMECertManager-DnsPlugins.
+Download a release zip and copy the DLL files into ACMECertManager/plugins/ beside acm.exe.
 
 ## GitHub Distribution Workflow
 1. Create a GitHub repository for your plugin source.

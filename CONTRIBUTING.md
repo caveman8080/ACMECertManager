@@ -8,7 +8,7 @@ This project is a Windows WPF desktop app for issuing and managing ACME certific
 
 - Main app: src/ (C#, WPF, .NET 10)
 - Tests: tests/ACMECertManager.Tests (xUnit)
-- Sample DNS plugin: samples/HurricaneElectricDnsPlugin
+- DNS plugins: published separately at https://github.com/caveman8080/ACMECertManager-DnsPlugins
 - Docs: README.md and docs/PLUGIN_DEVELOPMENT.md
 
 ## Development Environment
