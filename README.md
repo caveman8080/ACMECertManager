@@ -150,8 +150,9 @@ Certificate output and visibility:
 
 ## CI and Release Workflows
 - `.github/workflows/ci.yml`
-	- Runs on push to main and develop, and on pull requests.
-	- Guarded by paths: only runs when `src/**`, `tests/**`, `samples/**`, or `.github/workflows/**` changes.
+	- Runs on every pull request, and on push to `main`.
+	- Push to `main` is still path-filtered (`src/**`, `tests/**`, `samples/**`, `.github/workflows/**`) so docs-only pushes skip CI.
+	- Pull requests always run `build-and-test` (required check).
 	- Validates restore, build, and tests only.
 	- Uses .NET 10.
 - `.github/workflows/release.yml`
@@ -165,12 +166,11 @@ Certificate output and visibility:
 - The app version metadata is automatically set by workflow at build time.
 
 Release steps:
-1. Develop and test changes on the `develop` branch.
-2. Open a pull request from `develop` to `main` and merge when ready.
-3. Create and push a release tag, for example:
+1. Open a feature-branch pull request into `main` and merge when ready.
+2. When you want a user download, create and push a release tag from `main`, for example:
 	 - `git tag v1.0.0`
 	 - `git push origin v1.0.0`
-4. GitHub Actions runs the release workflow and publishes release assets.
+3. GitHub Actions runs the release workflow and publishes zip assets on GitHub Releases.
 
 Version bump guidance:
 - Patch update (bug fixes): `v1.0.1`
@@ -178,9 +178,8 @@ Version bump guidance:
 - Major update (breaking changes): `v2.0.0`
 
 ## Contributing Notes
-- Docs-only changes (for example README or LICENSE updates) intentionally do not trigger CI.
-- CI runs only when code/test/sample/workflow paths change, based on workflow path guards.
-- If you need a full validation run for a docs PR, include a small relevant workflow change or run local checks before opening the PR.
+- Pull requests always run CI so the required `build-and-test` check can report.
+- Docs-only pushes to `main` still skip CI because of path filters on the `push` event.
 
 ## Security Tips
 - Production is the default. Use staging from advanced options when testing to avoid rate limits.
