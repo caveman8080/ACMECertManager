@@ -18,7 +18,7 @@
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Certes" Version="3.0.4" />
+    <PackageReference Include="Certes" Version="4.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
     <PackageReference Include="FluentFTP" Version="55.0.0" />
