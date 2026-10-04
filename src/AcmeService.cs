@@ -282,7 +282,7 @@ namespace ACMECertManager
                 var dnsRequest = new DnsChallengeRequest
                 {
                     Domain = dnsIdentifier,
-                    RecordName = $"_acme-challenge.{dnsIdentifier}",
+                    RecordName = GetDns01TxtRecordName(dnsIdentifier),
                     Token = dnsChallenge.Token,
                     KeyAuthorization = dnsChallenge.KeyAuthz,
                     TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
@@ -1319,6 +1319,17 @@ namespace ACMECertManager
             }
 
             return sanitized;
+        }
+
+        internal static string GetDns01TxtRecordName(string dnsIdentifier)
+        {
+            var host = dnsIdentifier;
+            if (host.StartsWith("*.", StringComparison.Ordinal))
+            {
+                host = host[2..];
+            }
+
+            return $"_acme-challenge.{host}";
         }
 
         private static bool DirectoryContainsEntries(string path)

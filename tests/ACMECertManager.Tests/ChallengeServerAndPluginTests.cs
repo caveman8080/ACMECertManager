@@ -81,6 +81,17 @@ public sealed class ChallengeServerAndPluginTests
         Assert.Equal(expected, result);
     }
 
+    [Theory]
+    [InlineData("example.com", "_acme-challenge.example.com")]
+    [InlineData("*.example.com", "_acme-challenge.example.com")]
+    [InlineData("*.sub.example.com", "_acme-challenge.sub.example.com")]
+    public void GetDns01TxtRecordName_StripsLeadingWildcard(string dnsIdentifier, string expected)
+    {
+        var result = AcmeService.GetDns01TxtRecordName(dnsIdentifier);
+
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public void GetCertificateOutputDirectory_UsesDomainAndIssueDateFolders()
     {
