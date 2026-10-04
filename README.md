@@ -1,199 +1,105 @@
 # ACME Certificate Manager
 
-[![CI (.NET 10)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/caveman8080/ACMECertManager/actions/workflows/codeql.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/codeql.yml)
-[![Dependabot Updates](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/dependabot/dependabot-updates)
-[![Release](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml/badge.svg)](https://github.com/caveman8080/ACMECertManager/actions/workflows/release.yml)
+A small Windows program for someone who only needs two or three certificates. Use it for a NAS, a webcam, or a page you host yourself. You do not need scripts, and you do not need to install Certbot. It is for everyday personal use, not for a business.
 
-**The friendliest Windows app for free Let's Encrypt certificates**  
+It talks to Let's Encrypt (through the Certes library) and saves the certificate files next to the program.
 
-## ✅ Quick Start (30 seconds)
-1. Download the latest package from **Releases** for your architecture (win-x86, win-x64, or win-arm64)
-2. Extract the package and run `acm.exe`
-3. Go to “Issue New Certificate” tab and click the big button
+1. It issues a certificate to you.
+2. It lists the certificates this program has issued, so you can see them, open their folder, revoke one, or delete the local files.
+3. Manage Certificates has a Renew button. Clicking it only writes a log line. It does not issue a new certificate.
+4. It is portable. Unzip it and run `acm.exe`. Nothing to install.
+5. It is for home use. It is not a business or company product.
 
-**Defaults to Let's Encrypt production** (real certificates). Use the advanced options in Issue New Certificate to switch to staging when testing.
+## Get the portable build
 
-## Requirements
-- Minimum runtime for development and source builds: .NET 10 (net10.0-windows).
-- Minimum SDK for local build/test/publish commands: .NET SDK 10.0.
-- Windows 10/11.
+Releases are Windows only: `win-x86`, `win-x64`, and `win-arm64`. There is no Mac or Linux build.
 
-## Features
-- Dashboard with big friendly buttons
-- Issue wizard (domains, wildcards, HTTP-01, TLS-ALPN-01, DNS-01 plugin workflow)
-- Manage certificates (list, expiry, renew/revoke)
-- Logs tab with colored output
-- Runtime folders auto-created next to the executable (plugins/, logs/, certs/, storage/)
-- Self-contained single .exe (runs on any Windows 10/11)
+1. Open [Releases](https://github.com/caveman8080/ACMECertManager/releases).
+2. Download the zip for your PC. Most people want `ACMECertManager-vX.Y.Z-win-x64.zip`. The other names are `win-x86` and `win-arm64`.
+3. Unzip it. Open the `ACMECertManager` folder and run `acm.exe`.
 
-## Validation Method Guide
-- HTTP-01: Best when your domain can serve `http://<domain>/.well-known/acme-challenge/<token>`. Self-hosted mode uses a temporary listener on port 80.
-- TLS-ALPN-01: Best when HTTP routing is difficult but inbound TLS on 443 is available. The app runs a temporary TLS listener with the ACME ALPN challenge certificate on port 443.
-- DNS-01 (plugin): Required for wildcard certificates and useful when ports 80/443 cannot be exposed.
+The zip already contains what the program needs to run. You do not install .NET, and you do not run an installer.
 
-How to choose:
-1. Need a wildcard certificate (`*.example.com`) -> use DNS-01.
-2. Can expose port 80 and want simplest web challenge -> use HTTP-01.
-3. Can expose port 443 but not port 80 -> use TLS-ALPN-01.
+The program keeps its files in folders beside `acm.exe`:
 
-Administrator requirement:
-- Self-hosted HTTP-01 (port 80) and TLS-ALPN-01 (port 443) can require elevated privileges on Windows.
-- Use the in-app **Re-launch as Administrator** link before issuing when prompted.
+- `plugins/` for DNS plugin files
+- `logs/` for the log
+- `certs/` for certificate files
+- `storage/` for the list of certificates, account keys, and settings
 
-### Validation Failures (Quick Fixes)
-- Port in use (`80` or `443`): stop the conflicting service (for example IIS, Nginx, Apache, or another local reverse proxy) and retry.
-- Cannot reach challenge endpoint: verify inbound firewall/NAT rules for the selected method (`80` for HTTP-01, `443` for TLS-ALPN-01).
-- DNS-01 not validating yet: wait longer for TXT propagation, then retry (some providers need several minutes).
+To use a newer zip without losing what you already have:
 
-## Screenshots
+1. Close the program.
+2. Unzip the new zip into the same `ACMECertManager` folder and allow it to replace `acm.exe`.
+3. Leave `plugins/`, `logs/`, `certs/`, and `storage/` in place.
 
-### Manage Certificates
+If you delete the old folder first, you lose those files unless you copied them somewhere else.
+
+## Issue a certificate
+
+Open **Issue New Certificate**, type the name (for example `nas.example.com`), and choose how Let's Encrypt checks that the name is yours.
+
+- **HTTP-01.** The usual choice when this PC can answer on port 80 for a minute. Port 80 must be free. Stop anything else that is using it, such as another web server, then try again. The program may ask you to run it as Administrator. If this PC is not the one the internet reaches, you can instead have the program place the check file in a folder, or send it by FTP, SFTP, WebDAV, or a web address.
+- **TLS-ALPN-01.** Use this when port 80 is not available but port 443 is. Port 443 must be free while the check runs. The program may ask you to run it as Administrator. This does not install the certificate into Windows, and it does not attach it to an IIS site.
+- **DNS-01.** Use this for a wildcard name such as `*.example.com`, or when ports 80 and 443 cannot be opened. You need a DNS plugin (see below). A wildcard name only works with DNS-01.
+
+The program uses the real Let's Encrypt service unless you turn on the staging (test) option. Staging certificates are not trusted by browsers. You can also type a different ACME directory address if you already have one.
+
+You can leave the key as RSA 2048 (RS256), or pick ECDSA P-256 (ES256) or ECDSA P-384 (ES384). Check **Also create a PFX file (certificate.pfx)** only if you want a `.pfx` file as well as the PEM files. The PFX file is saved with no password.
+
+After it finishes, the certificate shows up under **Manage Certificates**. That list is only what this program has issued. It does not read the Windows certificate store.
+
+## Files you get
+
+Each issue is saved under `certs/{name}/{MM-dd-yyyy}/` next to `acm.exe`. Example: `certs/nas.example.com/10-04-2026/`.
+
+You get:
+
+- `cert.pem`
+- `chain.pem`
+- `fullchain.pem`
+- `privkey.pem`
+- `certificate.pfx`, only if you asked for a PFX file
+
+Issuing the same name again makes a new dated folder. If you issue it twice on the same day, the second folder gets a `-2` (then `-3`, and so on). Older files are left alone.
+
+A wildcard name such as `*.example.com` is stored in a folder named `wildcard.example.com`. For DNS-01, the TXT record name drops a leading `*.`, so the record is `_acme-challenge.example.com`, not `_acme-challenge.*.example.com`.
+
+**Manage Certificates** can open that folder, revoke the certificate at Let's Encrypt (this needs `privkey.pem`), or delete the local files. Deleting local files does not revoke the certificate. The list itself is kept in `storage/certificates.json`.
+
+DNS plugin passwords are stored as plain text in `storage/dns-secrets.json`. Keep that folder private.
+
 ![Manage Certificates](docs/screenshots/manage-certificates.png)
 
-### Issue New Certificate
 ![Issue New Certificate](docs/screenshots/issue-new-certificate.png)
 
-### Logs
-![Logs](docs/screenshots/logs.png)
+## DNS plugins
 
-### Settings
-![Settings](docs/screenshots/settings.png)
+You only need a plugin for DNS-01, including wildcard names.
 
-## Runtime Folder Layout
-At startup the app creates these folders beside the executable:
-- plugins/ for DNS plugin DLL files
-- logs/ for persistent log files
-- certs/ for generated certificate files
-- storage/ for account/config/secrets JSON files
+1. Download a plugin zip from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) Releases.
+2. Put the DLL in the `plugins` folder next to `acm.exe`.
+3. Start the program, choose DNS-01, pick the plugin, and fill in the fields it asks for.
 
-Legacy root files are migrated to storage/ on startup.
+If you want to write your own plugin, see [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md).
 
-Expected extracted structure:
-- ACMECertManager/acm.exe
-- ACMECertManager/plugins/
-- ACMECertManager/logs/
-- ACMECertManager/certs/
-- ACMECertManager/storage/
+## Renewal
 
-## Updating to a New Release
-Use an in-place upgrade so your certificates and settings stay intact.
+On **Manage Certificates**, select a certificate and click **Renew**.
 
-Simple update steps:
-1. Close ACMECertManager if it is running.
-2. Download the new release package for your architecture.
-3. Extract/copy the new files into your existing ACMECertManager folder.
-4. Allow overwrite of app binaries (including acm.exe).
-5. Make sure these folders are still present after update: plugins/, logs/, certs/, storage/.
-6. Launch acm.exe.
+The button writes a log line and stops. It does not fill in a new request from the choices you used the first time, and it does not write a new certificate. Nothing renews on a schedule while the program is closed.
 
-What is preserved on upgrade (if you keep the same folder):
-- certs/ (issued certificate files)
-- storage/certificates.json (certificate list/metadata)
-- **storage/acme-account-production.pem** and **storage/acme-account-staging.pem** (environment-specific ACME account keys)
-- storage/dns-secrets.json (saved DNS plugin credentials)
-- storage/ui-settings.json (UI settings)
-- logs/ (log history)
-- plugins/ (DNS plugin DLLs you added)
+The list does keep the name, the end date, which check was used (HTTP-01, TLS-ALPN-01, or DNS-01), and which Let's Encrypt address was used. Renew does not use those facts to issue again. To get a new certificate, open **Issue New Certificate** and fill in the form again.
 
-What can be lost:
-- If you delete the old folder before copying the new release, you lose local data unless you backed up and restored certs/, storage/, logs/, and plugins/.
-- If certs/ is missing but storage/certificates.json exists, entries may remain but certificate files referenced by those entries may be missing.
+The program also does not install the certificate into Windows or bind it in IIS. Copy the files onto the NAS, camera, or site yourself, the way that device asks you to.
 
-## DNS-01 Plugin Workflow
-1. Download DNS plugins from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) **Releases**.
-2. Drop the plugin DLL(s) into `plugins/` beside `acm.exe`.
-3. Launch the app and open Issue New Certificate.
-4. Select DNS-01 and choose a plugin from the dropdown.
-5. Fill required plugin fields.
-6. Issue certificate.
+## Build from source
 
-Operational sequence:
-1. Download the pre-built ACMECertManager package for your architecture (x86, x64, ARM64).
-2. Extract the ACMECertManager directory from the archive.
-3. Verify acm.exe, plugins, logs, certs, and storage exist.
-4. Download DNS plugins from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) Releases and drop the DLL files into plugins/.
-5. Start the app to auto-scan and load plugin DLLs.
-6. Choose DNS-01 and select the plugin from the DNS dropdown.
-7. Enter plugin-required credentials and provider data.
-8. After issuance, certificate files are saved in certs/ and shown in Manage Certificates.
-9. Use Revoke Selected (CA) and Delete Selected (Local) for certificate lifecycle actions.
+This section is for people changing the program. The zip above is enough if you only want certificates.
 
-Warning: DNS plugin secrets are currently stored in plaintext in storage/dns-secrets.json.
-
-Saved DNS credentials now default to the current certificate hostname as Domain/Context when available. Blank Domain/Context is only used when no hostname is provided.
-
-Advanced ACME options (Issue New Certificate):
-- Choose private key algorithm: RSA 2048 (RS256, default), ECDSA P-256 (ES256), or ECDSA P-384 (ES384).
-- Use Let's Encrypt staging server for test issuance.
-- Optionally override with a custom ACME directory URL.
-- Certificate expiry is read from the issued certificate's NotAfter value (not a fixed 90-day estimate).
-
-Certificate output and visibility:
-- Certificate files are saved under `certs/{domain}/{MM-dd-yyyy}/` (for example `certs/nas.yawnee.net/02-08-2026/`).
-- Re-issuing the same domain creates a new dated folder so previous certificate files are preserved.
-- If PFX output is selected, issuance now validates that certificate.pfx was actually created.
-- Issued certificates are persisted to storage/certificates.json and immediately reloaded into the Manage Certificates grid.
-
-## How to Get Your .exe (2 ways)
-
-**Way 1 – Easiest (GitHub Release assets)**
-- Go to **Releases** and download the archive for your architecture:
-	- ACMECertManager-vX.Y.Z-win-x86.zip
-	- ACMECertManager-vX.Y.Z-win-x64.zip
-	- ACMECertManager-vX.Y.Z-win-arm64.zip
-
-**Way 2 – Build yourself**
-1. Install free **Visual Studio Code** with .NET 10 support (or install .NET SDK 10.0).
-2. Open `ACMECertManager.sln`
-3. Press **F5** to run immediately
-4. To create single .exe: right-click project → Publish → self-contained win-x64 → Publish
-
-## CI and Release Workflows
-- `.github/workflows/ci.yml`
-	- Runs on every pull request, and on push to `main`.
-	- Push to `main` is still path-filtered (`src/**`, `tests/**`, `.github/workflows/**`) so docs-only pushes skip CI.
-	- Pull requests always run `build-and-test` (required check).
-	- Validates restore, build, and tests only.
-	- Uses .NET 10.
-- `.github/workflows/release.yml`
-	- Runs only when a tag is pushed (format: vMAJOR.MINOR.PATCH).
-	- Builds release packages for win-x86, win-x64, and win-arm64.
-	- Publishes zipped assets to GitHub Releases.
-	- Publishes stable (non-prerelease) releases.
-
-## Versioning and Release Process
-- Stable release workflow enforces SemVer tags in this format: `vMAJOR.MINOR.PATCH`.
-- The app version metadata is automatically set by workflow at build time.
-
-Release steps:
-1. Open a feature-branch pull request into `main` and merge when ready.
-2. When you want a user download, create and push a release tag from `main`, for example:
-	 - `git tag v1.0.0`
-	 - `git push origin v1.0.0`
-3. GitHub Actions runs the release workflow and publishes zip assets on GitHub Releases.
-
-Version bump guidance:
-- Patch update (bug fixes): `v1.0.1`
-- Minor update (new backward-compatible features): `v1.1.0`
-- Major update (breaking changes): `v2.0.0`
-
-## Contributing Notes
-- Pull requests always run CI so the required `build-and-test` check can report.
-- Docs-only pushes to `main` still skip CI because of path filters on the `push` event.
-
-## Security Tips
-- Production is the default. Use staging from advanced options when testing to avoid rate limits.
-- Run as Administrator when using self-hosted HTTP-01 (port 80)
-- For TLS-ALPN-01 (port 443), admin rights are not normally required; if it fails, check for port conflicts or other listener/startup issues
-- Certificates auto-saved in `certs/` folder
-- DNS plugin credentials are stored unsecured (plaintext) in `storage/dns-secrets.json`
-
-## Plugin Development
-See [PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for instructions on building custom DNS plugin DLLs.
-
-Ready-made DNS plugins are published from [ACMECertManager-DnsPlugins](https://github.com/caveman8080/ACMECertManager-DnsPlugins) Releases. Download a release zip and drop the DLL into `plugins/`.
-
-**License:** GPL v3  
-
-Repo: https://github.com/caveman8080/ACMECertManager
+- Windows 10 or 11, and the .NET 10 SDK.
+- License: GPL-3.0. See [LICENSE](LICENSE).
+- Build and run: `dotnet build ACMECertManager.sln` then `dotnet run --project src/ACMECertManager.csproj`.
+- A version tag shaped like `v1.2.3`, pushed from `main`, builds the three Windows zips and publishes them on Releases.
+- How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md).
+- How to report a security problem: [SECURITY.md](SECURITY.md).
