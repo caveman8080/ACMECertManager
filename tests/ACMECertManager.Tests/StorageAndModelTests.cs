@@ -201,6 +201,58 @@ public sealed class StorageAndModelTests
     }
 
     [Fact]
+    public void TryGetForPluginDomain_MatchesPluginAndDomainOnly()
+    {
+        var storageDirectory = Path.Join(AppContext.BaseDirectory, "storage");
+        Directory.CreateDirectory(storageDirectory);
+
+        var secretsPath = Path.Join(storageDirectory, "dns-secrets.json");
+        var backup = File.Exists(secretsPath) ? File.ReadAllText(secretsPath) : null;
+
+        try
+        {
+            if (File.Exists(secretsPath))
+            {
+                File.Delete(secretsPath);
+            }
+
+            DnsSecretStorage.SaveForPlugin(
+                "example-plugin",
+                new Dictionary<string, string> { ["token"] = "not-a-secret" },
+                "*.example.com");
+            DnsSecretStorage.SaveForPlugin(
+                "example-plugin",
+                new Dictionary<string, string> { ["token"] = "other-not-a-secret" },
+                "other.example.net");
+
+            var match = DnsSecretStorage.TryGetForPluginDomain("example-plugin", "example.com");
+            Assert.NotNull(match);
+            Assert.Equal("not-a-secret", match["token"]);
+
+            var wildcard = DnsSecretStorage.TryGetForPluginDomain("example-plugin", "*.example.com");
+            Assert.NotNull(wildcard);
+            Assert.Equal("not-a-secret", wildcard["token"]);
+
+            Assert.Null(DnsSecretStorage.TryGetForPluginDomain("example-plugin", "missing.example.com"));
+            Assert.Null(DnsSecretStorage.TryGetForPluginDomain("other-plugin", "example.com"));
+        }
+        finally
+        {
+            if (backup is null)
+            {
+                if (File.Exists(secretsPath))
+                {
+                    File.Delete(secretsPath);
+                }
+            }
+            else
+            {
+                File.WriteAllText(secretsPath, backup);
+            }
+        }
+    }
+
+    [Fact]
     public void DnsSecretStorage_LoadAll_IgnoresMalformedJson()
     {
         var storageDirectory = Path.Join(AppContext.BaseDirectory, "storage");
