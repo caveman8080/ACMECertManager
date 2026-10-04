@@ -87,6 +87,34 @@ namespace ACMECertManager
             return LoadAll().FirstOrDefault(e => e.PluginId == pluginId)?.Credentials ?? new List<DnsSecretCredential>();
         }
 
+        /// <summary>
+        /// Returns saved values for one plugin id and domain, or null when that entry is absent.
+        /// Does not fall back to a different domain's credentials.
+        /// </summary>
+        public static IReadOnlyDictionary<string, string>? TryGetForPluginDomain(string pluginId, string? domainContext)
+        {
+            if (string.IsNullOrWhiteSpace(pluginId))
+            {
+                return null;
+            }
+
+            var normalizedDomain = NormalizeDomainContext(domainContext);
+            var entry = LoadAll().FirstOrDefault(e => string.Equals(e.PluginId, pluginId, StringComparison.Ordinal));
+            if (entry?.Credentials is null)
+            {
+                return null;
+            }
+
+            var credential = entry.Credentials.FirstOrDefault(c =>
+                string.Equals(NormalizeDomainContext(c.Domain), normalizedDomain, StringComparison.OrdinalIgnoreCase));
+            if (credential is null)
+            {
+                return null;
+            }
+
+            return credential.Values ?? new Dictionary<string, string>();
+        }
+
         public static void SaveForPlugin(string pluginId, IReadOnlyDictionary<string, string> values)
         {
             SaveForPlugin(pluginId, values, string.Empty);

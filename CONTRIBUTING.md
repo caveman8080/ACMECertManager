@@ -2,7 +2,7 @@
 
 Thank you for helping improve ACMECertManager.
 
-This project is a small portable Windows app for everyday personal use. It issues a few Let's Encrypt certificates (for example a NAS, a webcam, or a self-hosted page) and lists the ones it has issued. It is not a business or company product. Certificates are requested with HTTP-01, TLS-ALPN-01, or DNS-01. The Renew button only writes a log line. It does not load the original issue settings or ask Let's Encrypt for a new certificate.
+This project is a small portable Windows app for everyday personal use. It issues a few Let's Encrypt certificates (for example a NAS, a webcam, or a self-hosted page) and lists the ones it has issued. It is not a business or company product. Certificates are requested with HTTP-01, TLS-ALPN-01, or DNS-01. Renew replays the settings saved when the certificate was issued and asks Let's Encrypt for a new certificate. It does not open the issue form. Older records that do not have those settings only write a log line.
 
 ## Project At A Glance
 
@@ -78,7 +78,7 @@ For most PRs:
 
 Manual checks are especially important for:
 
-- Certificate issuance and revocation. Renew only writes a log line and does not replay the original issue.
+- Certificate issuance, renewal, and revocation. Renew replays saved issue settings and does not open the issue form.
 - HTTP-01 deployment options
 - DNS-01 plugin workflows
 - Runtime storage behavior (certs/, logs/, storage/, plugins/)

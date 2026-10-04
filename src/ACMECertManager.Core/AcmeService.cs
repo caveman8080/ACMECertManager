@@ -414,7 +414,7 @@ namespace ACMECertManager
             log?.Invoke($"[CERT] Certificate NotAfter (UTC): {expires:yyyy-MM-dd HH:mm:ss}");
 
             log?.Invoke("[ACME] ✅ Certificate issuance completed successfully");
-            return new CertificateModel
+            var issued = new CertificateModel
             {
                 Domain = string.Join(", ", domains),
                 Expires = expires,
@@ -426,8 +426,41 @@ namespace ACMECertManager
                 FullChainPemPath = pemPaths.FullChainPemPath,
                 PrivateKeyPemPath = pemPaths.KeyPemPath,
                 AcmeDirectoryUrl = acmeUrl,
-                ValidationMethod = FormatValidationMethod(validationMethod)
+                ValidationMethod = FormatValidationMethod(validationMethod),
+                Email = email ?? string.Empty,
+                KeyAlgorithm = keyAlgorithm.ToString(),
+                CreatePfxFile = createPfxFile
             };
+            ApplyReplaySettings(issued, validationMethod, httpDeployment, dnsPlugin);
+            return issued;
+        }
+
+        private static void ApplyReplaySettings(
+            CertificateModel model,
+            ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
+            DnsPluginExecution? dnsPlugin)
+        {
+            if (validationMethod == ChallengeValidationMethod.Dns01 && dnsPlugin is not null)
+            {
+                model.DnsPluginId = dnsPlugin.Plugin.Metadata.Id ?? string.Empty;
+            }
+
+            if (validationMethod != ChallengeValidationMethod.Http01 || httpDeployment is null)
+            {
+                return;
+            }
+
+            model.HttpDeploymentMethod = httpDeployment.Method.ToString();
+            model.HttpTarget = httpDeployment.Target ?? string.Empty;
+            model.HttpUsername = httpDeployment.Username ?? string.Empty;
+            model.HttpPassword = httpDeployment.Password ?? string.Empty;
+            model.HttpPublicValidationUrlTemplate = httpDeployment.PublicValidationUrlTemplate ?? string.Empty;
+            model.HttpRestMethod = httpDeployment.RestMethod ?? string.Empty;
+            model.HttpAdditionalHeaderName = httpDeployment.AdditionalHeaderName ?? string.Empty;
+            model.HttpAdditionalHeaderValue = httpDeployment.AdditionalHeaderValue ?? string.Empty;
+            model.HttpBearerToken = httpDeployment.BearerToken ?? string.Empty;
+            model.HttpSkipTlsCertificateValidation = httpDeployment.SkipTlsCertificateValidation;
         }
 
         internal static string FormatValidationMethod(ChallengeValidationMethod validationMethod)

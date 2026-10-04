@@ -520,10 +520,136 @@ namespace ACMECertManager
             page.BeginAnimation(OpacityProperty, fadeIn);
         }
 
-        private void Renew_Click(object sender, RoutedEventArgs e)
+        private async void Renew_Click(object sender, RoutedEventArgs e)
         {
-            if (dgCertificates.SelectedItem is CertificateModel cert)
-                Log($"🔄 Renewing {cert.Domain} (full renew ready in v1.1)");
+            if (dgCertificates.SelectedItem is not CertificateModel selected)
+            {
+                return;
+            }
+
+            if (!CertificateRenewalReplay.TryCreate(selected, out var request, out var missing) || request is null)
+            {
+                Log($"🔄 Renewing {selected.Domain} failed. Missing: {string.Join(", ", missing)}.");
+                return;
+            }
+
+            try
+            {
+                DnsPluginExecution? dnsExecution = null;
+                if (request.ValidationMethod == ChallengeValidationMethod.Dns01)
+                {
+                    var plugin = _availablePlugins.FirstOrDefault(p =>
+                        string.Equals(p.Metadata.Id, request.DnsPluginId, StringComparison.Ordinal));
+                    if (plugin is null)
+                    {
+                        Log($"🔄 Renewing {selected.Domain} failed. DNS plugin '{request.DnsPluginId}' is not loaded.");
+                        return;
+                    }
+
+                    var domainContext = GetDnsSecretDomainContext(request.Domains);
+                    var credentials = DnsSecretStorage.TryGetForPluginDomain(request.DnsPluginId, domainContext);
+                    if (credentials is null)
+                    {
+                        Log($"🔄 Renewing {selected.Domain} failed. No DNS credentials are saved for this domain.");
+                        return;
+                    }
+
+                    dnsExecution = new DnsPluginExecution
+                    {
+                        Plugin = plugin,
+                        Credentials = credentials
+                    };
+                }
+
+                Log($"🔄 Renewing {selected.Domain}...");
+                var cert = await _acmeService.IssueCertificateAsync(
+                    request.Domains,
+                    request.Email,
+                    request.AcmeDirectoryUrl,
+                    request.ValidationMethod,
+                    request.HttpDeployment,
+                    dnsExecution,
+                    request.CreatePfxFile,
+                    request.KeyAlgorithm,
+                    Log);
+
+                if (request.CreatePfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
+                {
+                    throw new InvalidOperationException("PFX output was requested, but certificate.pfx was not created.");
+                }
+
+                var existingIndex = _certificates.FindIndex(existing =>
+                    string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                {
+                    _certificates[existingIndex] = cert;
+                }
+                else
+                {
+                    _certificates.Add(cert);
+                }
+
+                CertificateStorage.Save(_certificates);
+                _certificates = CertificateStorage.Load();
+                LoadCertificatesGrid();
+
+                Log($"✅ SUCCESS! Certificate for {cert.Domain} renewed. Expires {cert.Expires:yyyy-MM-dd}");
+                var outputSummary = request.CreatePfxFile && !string.IsNullOrWhiteSpace(cert.PfxPath)
+                    ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
+                    : $"PEM files saved in:\n{cert.OutputDirectory}";
+                System.Windows.MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (ArgumentException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (Certes.AcmeException ex)
+            {
+                var message = AcmeService.FormatAcmeException(ex);
+                Log($"❌ ACME Error: {message}");
+                if (ex.StackTrace is not null)
+                {
+                    Log(ex.StackTrace);
+                }
+
+                System.Windows.MessageBox.Show(message, "ACME Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (IOException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (TaskCanceledException ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void Revoke_Click(object sender, RoutedEventArgs e)

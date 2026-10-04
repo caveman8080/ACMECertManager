@@ -6,7 +6,7 @@ It talks to Let's Encrypt (through the Certes library) and saves the certificate
 
 1. It issues a certificate to you.
 2. It lists the certificates this program has issued, so you can see them, open their folder, revoke one, or delete the local files.
-3. Manage Certificates has a Renew button. Clicking it only writes a log line. It does not issue a new certificate.
+3. Manage Certificates has a Renew button. It asks Let's Encrypt for a new certificate using the choices saved when that certificate was issued. It does not open the issue form.
 4. It is portable. Unzip it and run `acm.exe`. Nothing to install.
 5. It is for home use. It is not a business or company product.
 
@@ -87,11 +87,13 @@ If you want to write your own plugin, see [docs/PLUGIN_DEVELOPMENT.md](docs/PLUG
 
 On **Manage Certificates**, select a certificate and click **Renew**.
 
-The button writes a log line and stops. It does not fill in a new request from the choices you used the first time, and it does not write a new certificate. Nothing renews on a schedule while the program is closed.
+Renew uses the choices saved with that certificate: email, ACME directory, validation method, key type, whether to create a PFX file, and the HTTP deployment settings or DNS plugin id. It does not open the issue form. The previous certificate stays in the list. The new files go in a new dated folder under `certs/` (a same-day renewal gets a `-2` folder, then `-3`, and so on).
 
-The list does keep the name, the end date, which check was used (HTTP-01, TLS-ALPN-01, or DNS-01), and which Let's Encrypt address was used. Renew does not use those facts to issue again. To get a new certificate, open **Issue New Certificate** and fill in the form again.
+Certificates issued by an older version do not have those choices. Renew writes a log line naming what is missing and stops. Issue that name once with this version, and a later Renew can replay it.
 
-The program also does not install the certificate into Windows or bind it in IIS. Copy the files onto the NAS, camera, or site yourself, the way that device asks you to.
+DNS plugin secrets stay in `storage/dns-secrets.json`. Renew reads the saved secrets for that plugin and name. It does not show the plaintext warning again. If the plugin is not in the `plugins` folder, or no secrets are saved for that name, Renew writes a log line and stops.
+
+Nothing renews on a schedule while the program is closed. The program also does not install the certificate into Windows or bind it in IIS. Copy the files onto the NAS, camera, or site yourself, the way that device asks you to.
 
 ## Build from source
 
