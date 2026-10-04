@@ -1753,7 +1753,15 @@ namespace ACMECertManager
                 // Expected when stopping a listener blocked in GetContextAsync.
             }
 
-            _listener.Close();
+            try
+            {
+                _listener.Close();
+            }
+            catch (HttpListenerException)
+            {
+                // Linux HttpListener.Close throws if the port-80 prefix was never started.
+            }
+
             _disposed = true;
         }
     }
