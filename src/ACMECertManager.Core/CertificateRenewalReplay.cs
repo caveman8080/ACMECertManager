@@ -180,13 +180,9 @@ namespace ACMECertManager
             }
 
             var trimmed = raw.Trim();
-            foreach (var name in Enum.GetNames<CertificateKeyAlgorithm>())
+            foreach (var name in Enum.GetNames<CertificateKeyAlgorithm>()
+                         .Where(candidate => candidate.Equals(trimmed, StringComparison.OrdinalIgnoreCase)))
             {
-                if (!name.Equals(trimmed, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
                 return Enum.TryParse(name, ignoreCase: false, out algorithm) && Enum.IsDefined(algorithm);
             }
 

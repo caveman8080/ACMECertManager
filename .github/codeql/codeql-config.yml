@@ -1,0 +1,8 @@
+name: "CodeQL config"
+
+# Skip build output and generated sources. .codeqlignore is not read unless
+# this file is passed to the init action.
+paths-ignore:
+  - "**/obj/**"
+  - "**/bin/**"
+  - "**/*.g.cs"
