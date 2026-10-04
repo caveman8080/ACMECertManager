@@ -11,7 +11,7 @@
     <Platforms>x86;x64;ARM64</Platforms>
     <PublishTrimmed>false</PublishTrimmed>
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
-    <VersionPrefix>1.4.1</VersionPrefix>
+    <VersionPrefix>1.5.0</VersionPrefix>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);ACMECertManager.Core/**</DefaultItemExcludes>
   </PropertyGroup>
