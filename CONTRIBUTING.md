@@ -2,11 +2,12 @@
 
 Thank you for helping improve ACMECertManager.
 
-This project is a Windows WPF desktop app for issuing and managing ACME certificates (including Let's Encrypt) with HTTP-01 and DNS-01 workflows.
+This project is a small portable Windows app for everyday personal use. It issues a few Let's Encrypt certificates (for example a NAS, a webcam, or a self-hosted page) and lists the ones it has issued. It is not a business or company product. Certificates are requested with HTTP-01, TLS-ALPN-01, or DNS-01. The Renew button only writes a log line. It does not load the original issue settings or ask Let's Encrypt for a new certificate.
 
 ## Project At A Glance
 
-- Main app: src/ (C#, WPF, .NET 10)
+- Main app: src/ (C# WPF on .NET 10, Windows only; published as a portable zip for win-x86, win-x64, and win-arm64)
+- Shared library: src/ACMECertManager.Core (ACME and storage code, no WPF)
 - Tests: tests/ACMECertManager.Tests (xUnit)
 - DNS plugins: published separately at https://github.com/caveman8080/ACMECertManager-DnsPlugins
 - Docs: README.md and docs/PLUGIN_DEVELOPMENT.md
@@ -40,7 +41,7 @@ dotnet build ACMECertManager.sln -c Debug
 dotnet run --project src/ACMECertManager.csproj -c Debug
 ```
 
-Note: HTTP-01 self-hosted validation uses port 80 and may require running as Administrator.
+Note: HTTP-01 self-hosted validation uses port 80, which must be free, and may require running as Administrator. TLS-ALPN-01 uses port 443, which must be free, and may also ask to run as Administrator.
 
 ### Run Tests
 
@@ -50,10 +51,10 @@ dotnet test ACMECertManager.sln -c Debug --no-build
 
 ## Repository Structure
 
-- src/AcmeService.cs: ACME protocol, challenge orchestration, issuance logic
+- src/ACMECertManager.Core/AcmeService.cs: ACME protocol, challenge orchestration, issuance logic
 - src/MainWindow.xaml and src/MainWindow.xaml.cs: WPF UI flow and user actions
-- src/CertificateStorage.cs and src/CertificateModel.cs: certificate persistence and data model
-- src/DnsPlugins.cs and src/DnsSecretStorage.cs: DNS plugin loading and secrets persistence
+- src/ACMECertManager.Core/CertificateStorage.cs and src/ACMECertManager.Core/CertificateModel.cs: certificate persistence and data model
+- src/ACMECertManager.Core/DnsPlugins.cs and src/ACMECertManager.Core/DnsSecretStorage.cs: DNS plugin loading and secrets persistence
 - tests/ACMECertManager.Tests: unit tests for storage/model and helper behavior
 
 ## Coding Standards
@@ -77,7 +78,7 @@ For most PRs:
 
 Manual checks are especially important for:
 
-- Certificate issuance and renewal/revocation paths
+- Certificate issuance and revocation. Renew only writes a log line and does not replay the original issue.
 - HTTP-01 deployment options
 - DNS-01 plugin workflows
 - Runtime storage behavior (certs/, logs/, storage/, plugins/)

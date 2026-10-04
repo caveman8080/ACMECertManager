@@ -1,6 +1,6 @@
 # DNS Plugin Development Guide
 
-This app supports custom DNS-01 plugins loaded from DLL files in the plugins folder.
+ACMECertManager is a small portable Windows app for a few personal certificates. This guide is for writing a DNS plugin DLL that the app loads from the `plugins` folder next to `acm.exe`. Plugins are used only for DNS-01 (including wildcard names). Ready-made plugins are published from https://github.com/caveman8080/ACMECertManager-DnsPlugins.
 
 ## Compatibility Model
 - ACMECertManager uses its own plugin interface contract.
@@ -152,5 +152,4 @@ Download a release zip and copy the DLL files into ACMECertManager/plugins/ besi
 - Document breaking credential schema changes clearly.
 
 ## Security Notice
-Credentials entered for plugins are currently stored in plaintext in storage/dns-secrets.json.
-Do not use this build in untrusted environments without additional host-level protection.
+Passwords you type for a plugin are stored as plain text in `storage/dns-secrets.json`. Keep that file where other people on the PC cannot read it.
