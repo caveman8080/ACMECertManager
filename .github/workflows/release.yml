@@ -31,6 +31,10 @@ jobs:
   build-packages:
     needs: validate-tag
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -80,6 +84,11 @@ jobs:
         New-Item -ItemType Directory -Force -Path dist | Out-Null
         $zipName = "ACMECertManager-${{ needs.validate-tag.outputs.tag }}-${{ matrix.rid }}.zip"
         Compress-Archive -Path "package/*" -DestinationPath "dist/$zipName" -Force
+
+    - name: Attest build provenance
+      uses: actions/attest@v4
+      with:
+        subject-path: dist/*.zip
 
     - name: Upload package artifact
       uses: actions/upload-artifact@v4
