@@ -129,16 +129,7 @@ namespace ACMECertManager
                 return Array.Empty<string>();
             }
 
-            var domains = new List<string>(parts.Length);
-            foreach (var part in parts)
-            {
-                if (!string.IsNullOrWhiteSpace(part))
-                {
-                    domains.Add(part);
-                }
-            }
-
-            return domains.ToArray();
+            return parts;
         }
 
         private static bool TryParseValidationMethod(string? raw, out ChallengeValidationMethod method)
