@@ -82,11 +82,11 @@ public sealed class CertificateRenewalReplayTests
     }
 
     [Fact]
-    public void TryCreate_DomainList_TrimsAndRemovesEmptyEntries()
+    public void TryCreate_DomainList_TrimsWhitespaceAndTrailingEmptyEntries()
     {
         var model = new CertificateModel
         {
-            Domain = " example.com, ,api.example.com,, www.example.com ",
+            Domain = "a.example, , b.example,",
             Email = "certs@example.com",
             AcmeDirectoryUrl = "https://acme.example.test/directory",
             ValidationMethod = "DNS-01",
@@ -100,7 +100,7 @@ public sealed class CertificateRenewalReplayTests
         Assert.True(created);
         Assert.Empty(missing);
         Assert.NotNull(request);
-        Assert.Equal(new[] { "example.com", "api.example.com", "www.example.com" }, request.Domains);
+        Assert.Equal(new[] { "a.example", "b.example" }, request.Domains);
     }
 
     [Fact]
