@@ -69,6 +69,8 @@ A wildcard name such as `*.example.com` is stored in a folder named `wildcard.ex
 
 DNS plugin passwords are stored as plain text in `storage/dns-secrets.json`. Keep that folder private.
 
+HTTP deployment settings are saved with each certificate in `storage/certificates.json` so Renew can reuse them. That includes the username, password, bearer token, and additional header value, all as plain text. Keep that folder private.
+
 ![Manage Certificates](docs/screenshots/manage-certificates.png)
 
 ![Issue New Certificate](docs/screenshots/issue-new-certificate.png)
@@ -92,6 +94,8 @@ Renew uses the choices saved with that certificate: email, ACME directory, valid
 Certificates issued by an older version do not have those choices. Renew writes a log line naming what is missing and stops. Issue that name once with this version, and a later Renew can replay it.
 
 DNS plugin secrets stay in `storage/dns-secrets.json`. Renew reads the saved secrets for that plugin and name. It does not show the plaintext warning again. If the plugin is not in the `plugins` folder, or no secrets are saved for that name, Renew writes a log line and stops.
+
+HTTP deployment credentials come from `storage/certificates.json`, where they are saved as plain text when the certificate is issued.
 
 Nothing renews on a schedule while the program is closed. The program also does not install the certificate into Windows or bind it in IIS. Copy the files onto the NAS, camera, or site yourself, the way that device asks you to.
 
