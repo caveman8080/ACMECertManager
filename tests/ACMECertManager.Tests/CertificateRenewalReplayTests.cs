@@ -82,6 +82,28 @@ public sealed class CertificateRenewalReplayTests
     }
 
     [Fact]
+    public void TryCreate_DomainList_TrimsAndRemovesEmptyEntries()
+    {
+        var model = new CertificateModel
+        {
+            Domain = " example.com, ,api.example.com,, www.example.com ",
+            Email = "certs@example.com",
+            AcmeDirectoryUrl = "https://acme.example.test/directory",
+            ValidationMethod = "DNS-01",
+            KeyAlgorithm = "ES256",
+            CreatePfxFile = true,
+            DnsPluginId = "example-plugin"
+        };
+
+        var created = CertificateRenewalReplay.TryCreate(model, out var request, out var missing);
+
+        Assert.True(created);
+        Assert.Empty(missing);
+        Assert.NotNull(request);
+        Assert.Equal(new[] { "example.com", "api.example.com", "www.example.com" }, request.Domains);
+    }
+
+    [Fact]
     public void TryCreate_OldDnsRecord_ReportsMissingReplaySettings()
     {
         const string json = """
