@@ -284,4 +284,38 @@ public sealed class StorageAndModelTests
             }
         }
     }
+
+    [Fact]
+    public void DnsCredentialFormValues_CustomCredentialsSelection_YieldsEmptyFields()
+    {
+        var fields = new[]
+        {
+            new DnsCredentialField { Name = "key", Label = "Key", IsSecret = true },
+            new DnsCredentialField { Name = "wait", Label = "Wait", IsRequired = false }
+        };
+
+        var values = DnsCredentialFormValues.Resolve(fields, null);
+
+        Assert.Equal(2, values.Count);
+        Assert.Equal(string.Empty, values["key"]);
+        Assert.Equal(string.Empty, values["wait"]);
+    }
+
+    [Fact]
+    public void DnsCredentialFormValues_SelectedStoredCredential_FillsOnlyItsValues()
+    {
+        var fields = new[]
+        {
+            new DnsCredentialField { Name = "key", Label = "Key", IsSecret = true },
+            new DnsCredentialField { Name = "wait", Label = "Wait", IsRequired = false }
+        };
+
+        var values = DnsCredentialFormValues.Resolve(
+            fields,
+            new Dictionary<string, string> { ["key"] = "not-a-secret", ["unrelated"] = "ignored" });
+
+        Assert.Equal("not-a-secret", values["key"]);
+        Assert.Equal(string.Empty, values["wait"]);
+        Assert.False(values.ContainsKey("unrelated"));
+    }
 }

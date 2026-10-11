@@ -1052,9 +1052,12 @@ namespace ACMECertManager
                 pnlDnsFields.Children.Add(credentialCombo);
             }
 
-            var savedValues = DnsSecretStorage.GetForPlugin(selected.Metadata.Id);
+            // The "(use new/custom credentials)" entry is selected by default, so start with empty
+            // inputs. Stored values are only filled in when the user picks a stored credential.
+            var pluginFields = selected.Instance.GetCredentialFields();
+            var initialValues = DnsCredentialFormValues.Resolve(pluginFields, null);
 
-            foreach (var field in selected.Instance.GetCredentialFields())
+            foreach (var field in pluginFields)
             {
                 var label = new System.Windows.Controls.TextBlock
                 {
@@ -1072,10 +1075,7 @@ namespace ACMECertManager
                     ToolTip = field.Placeholder
                 };
 
-                if (savedValues.TryGetValue(field.Name, out var existingValue))
-                {
-                    input.Text = existingValue;
-                }
+                input.Text = initialValues[field.Name];
 
                 _dnsFieldInputs[field.Name] = input;
                 pnlDnsFields.Children.Add(input);
@@ -1096,21 +1096,17 @@ namespace ACMECertManager
 
         private void PopulateDnsFieldsFromCredential(LoadedDnsPlugin plugin, IReadOnlyDictionary<string, string> credentials)
         {
-            foreach (var field in plugin.Instance.GetCredentialFields().Where(field => _dnsFieldInputs.ContainsKey(field.Name)))
+            var fields = plugin.Instance.GetCredentialFields().Where(field => _dnsFieldInputs.ContainsKey(field.Name)).ToList();
+            var values = DnsCredentialFormValues.Resolve(fields, credentials);
+            foreach (var field in fields)
             {
-                var input = _dnsFieldInputs[field.Name];
-                input.Text = credentials.TryGetValue(field.Name, out var value)
-                    ? value
-                    : string.Empty;
+                _dnsFieldInputs[field.Name].Text = values[field.Name];
             }
         }
 
         private void ClearDnsFields(LoadedDnsPlugin plugin)
         {
-            foreach (var field in plugin.Instance.GetCredentialFields().Where(field => _dnsFieldInputs.ContainsKey(field.Name)))
-            {
-                _dnsFieldInputs[field.Name].Text = string.Empty;
-            }
+            PopulateDnsFieldsFromCredential(plugin, new Dictionary<string, string>());
         }
 
         private Dictionary<string, string> CollectDnsCredentials(LoadedDnsPlugin plugin)
