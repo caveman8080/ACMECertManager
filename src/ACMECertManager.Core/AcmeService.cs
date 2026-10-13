@@ -430,10 +430,6 @@ namespace ACMECertManager
                 {
                     SkipPfxAfterPemSaved(ex);
                 }
-                catch (NullReferenceException ex)
-                {
-                    SkipPfxAfterPemSaved(ex);
-                }
                 catch (IOException ex)
                 {
                     SkipPfxAfterPemSaved(ex);
@@ -1376,11 +1372,6 @@ namespace ACMECertManager
             }
             catch (CryptographicException ex)
             {
-                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
-            }
-            catch (NullReferenceException ex)
-            {
-                // Certes dereferences a null password inside PfxBuilder.Build.
                 return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
             }
             catch (InvalidOperationException ex)
