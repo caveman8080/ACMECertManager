@@ -276,6 +276,7 @@ namespace ACMECertManager
             }
             catch (Exception ex)
             {
+                // Last resort: an unexpected issuance failure must be logged and shown instead of closing the window.
                 Log($"❌ Error: {ex.Message}");
                 if (!string.IsNullOrWhiteSpace(ex.StackTrace))
                 {
@@ -620,6 +621,7 @@ namespace ACMECertManager
             }
             catch (Exception ex)
             {
+                // Last resort: an unexpected renewal failure must be logged and shown instead of closing the window.
                 Log($"❌ Error: {ex.Message}");
                 if (!string.IsNullOrWhiteSpace(ex.StackTrace))
                 {

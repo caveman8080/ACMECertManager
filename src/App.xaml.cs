@@ -56,7 +56,7 @@ namespace ACMECertManager
             }
             catch (Exception)
             {
-                // The UI may already be shutting down. The exception is logged and marked handled.
+                // Last resort: this dialog runs inside the global UI handler. A failure while showing it must not close the app.
             }
         }
 
@@ -87,7 +87,7 @@ namespace ACMECertManager
             }
             catch (Exception)
             {
-                // Last-chance logging must not throw.
+                // Last resort: logging an unhandled exception must not throw and take the process down.
             }
         }
 
