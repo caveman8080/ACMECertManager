@@ -121,6 +121,12 @@ namespace ACMECertManager
         public const string LetsEncryptProductionDirectoryUrl = "https://acme-v02.api.letsencrypt.org/directory";
         public const string LetsEncryptStagingDirectoryUrl = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
+        /// <summary>
+        /// Password for passwordless PKCS#12 files. Certes throws when this is null, so export and
+        /// import both use an empty password. Keys are not password-protected.
+        /// </summary>
+        internal const string PasswordlessPfxPassword = "";
+
         private static readonly TimeSpan DefaultPollDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MaxWaitForAuthorization = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan MaxWaitForOrderReady = TimeSpan.FromMinutes(2);
@@ -401,13 +407,55 @@ namespace ACMECertManager
             var pfxPath = string.Empty;
             if (createPfxFile)
             {
-                log?.Invoke("[CERT] Building PFX certificate file...");
-                var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
+                var candidatePfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
+                try
+                {
+                    log?.Invoke("[CERT] Building PFX certificate file...");
+                    var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
 
-                pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
-                log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
-                File.WriteAllBytes(pfxPath, pfxBytes);
-                log?.Invoke("[CERT] PFX file saved successfully");
+                    log?.Invoke($"[CERT] Saving PFX to: {candidatePfxPath}");
+                    SavePfxFile(candidatePfxPath, pfxBytes);
+                    pfxPath = candidatePfxPath;
+                    log?.Invoke("[CERT] PFX file saved successfully");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (CryptographicException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (AcmeException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (IOException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (ArgumentException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+                catch (NotSupportedException ex)
+                {
+                    SkipPfxAfterPemSaved(ex);
+                }
+
+                void SkipPfxAfterPemSaved(Exception ex)
+                {
+                    // PEM files are already on disk. Drop a partial PFX so revocation does not
+                    // prefer it over cert.pem, then keep the issued certificate.
+                    DeleteFileIfExists(candidatePfxPath);
+                    pfxPath = string.Empty;
+                    log?.Invoke(
+                        $"[CERT] ⚠️ PFX creation was skipped after PEM files were saved in {certificateOutputDirectory}. {ex.Message}");
+                }
             }
 
             var expires = GetCertificateNotAfterUtc(leafCertificatePem);
@@ -1081,7 +1129,7 @@ namespace ACMECertManager
             {
                 using var cert = X509CertificateLoader.LoadPkcs12FromFile(
                     pfxPath,
-                    (string?)null,
+                    PasswordlessPfxPassword,
                     X509KeyStorageFlags.EphemeralKeySet);
                 return cert.Export(X509ContentType.Cert);
             }
@@ -1225,14 +1273,86 @@ namespace ACMECertManager
         private static byte[] BuildLeafOnlyPfx(string leafCertificatePem, string privateKeyPem)
         {
             using var certificateWithKey = X509Certificate2.CreateFromPem(leafCertificatePem, privateKeyPem);
-            return certificateWithKey.Export(X509ContentType.Pfx);
+            return certificateWithKey.Export(X509ContentType.Pfx, PasswordlessPfxPassword);
         }
 
         /// <summary>
-        /// Builds a PFX from the Certes certificate chain. When Certes cannot resolve intermediate/root
-        /// issuers (common with staging chains), falls back to a leaf-only PFX export.
+        /// Writes a PFX by saving a temp file in the same directory and then replacing the destination.
+        /// A failed write deletes the temp file and any partial destination so revocation will not
+        /// load a truncated certificate.pfx ahead of cert.pem.
         /// </summary>
-        private static byte[] BuildPfxBytes(
+        internal static void SavePfxFile(string destinationPath, byte[] pfxBytes)
+            => SavePfxFile(destinationPath, pfxBytes, static (path, bytes) => File.WriteAllBytes(path, bytes));
+
+        internal static void SavePfxFile(string destinationPath, byte[] pfxBytes, Action<string, byte[]> writeTempFile)
+        {
+            var directory = Path.GetDirectoryName(destinationPath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                throw new InvalidOperationException("PFX path must include a directory.");
+            }
+
+            var tempPath = Path.Join(directory, $".{Path.GetFileName(destinationPath)}.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                writeTempFile(tempPath, pfxBytes);
+                File.Move(tempPath, destinationPath, overwrite: true);
+            }
+            catch (IOException)
+            {
+                DiscardPartialPfx(tempPath, destinationPath);
+                throw;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                DiscardPartialPfx(tempPath, destinationPath);
+                throw;
+            }
+            catch (ArgumentException)
+            {
+                DiscardPartialPfx(tempPath, destinationPath);
+                throw;
+            }
+            catch (NotSupportedException)
+            {
+                DiscardPartialPfx(tempPath, destinationPath);
+                throw;
+            }
+        }
+
+        private static void DiscardPartialPfx(string tempPath, string destinationPath)
+        {
+            DeleteFileIfExists(tempPath);
+            DeleteFileIfExists(destinationPath);
+        }
+
+        private static void DeleteFileIfExists(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+                // Cleanup must not hide the original PFX failure.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Cleanup must not hide the original PFX failure.
+            }
+        }
+
+        /// <summary>
+        /// Builds a passwordless PFX from the Certes certificate chain. Certes throws when the
+        /// password is null, so the export uses an empty password. When the chain cannot be
+        /// packaged, falls back to a leaf-only PFX export.
+        /// </summary>
+        internal static byte[] BuildPfxBytes(
             CertificateChain certificateChain,
             IKey privateKey,
             string friendlyName,
@@ -1242,21 +1362,81 @@ namespace ACMECertManager
         {
             try
             {
-                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, null);
+                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, PasswordlessPfxPassword);
                 log?.Invoke("[CERT] PFX file built successfully");
                 return pfxBytes;
             }
-            catch (Exception ex) when (
-                ex is CryptographicException ||
-                ex is InvalidOperationException ||
-                ex is AcmeException ||
-                IsIssuerResolutionFailure(ex))
+            catch (AcmeException ex)
             {
-                log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (CryptographicException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (IOException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (ArgumentException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+            catch (NotSupportedException ex)
+            {
+                return BuildLeafOnlyPfxFallback(ex, leafCertificatePem, privateKeyPem, log);
+            }
+        }
+
+        private static byte[] BuildLeafOnlyPfxFallback(
+            Exception chainError,
+            string leafCertificatePem,
+            string privateKeyPem,
+            Action<string>? log)
+        {
+            log?.Invoke($"[CERT] ⚠️ PFX build failed ({chainError.GetType().Name}: {chainError.Message}). Falling back to leaf-only PFX export.");
+            try
+            {
                 var fallback = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
                 log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
                 return fallback;
             }
+            catch (CryptographicException fallbackEx)
+            {
+                throw CreatePfxExportFailure(chainError, fallbackEx);
+            }
+            catch (ArgumentException fallbackEx)
+            {
+                throw CreatePfxExportFailure(chainError, fallbackEx);
+            }
+            catch (InvalidOperationException fallbackEx)
+            {
+                throw CreatePfxExportFailure(chainError, fallbackEx);
+            }
+            catch (IOException fallbackEx)
+            {
+                throw CreatePfxExportFailure(chainError, fallbackEx);
+            }
+            catch (UnauthorizedAccessException fallbackEx)
+            {
+                throw CreatePfxExportFailure(chainError, fallbackEx);
+            }
+        }
+
+        private static InvalidOperationException CreatePfxExportFailure(Exception chainError, Exception fallbackError)
+        {
+            return new InvalidOperationException(
+                "Could not create a passwordless PFX file. The certificate chain export failed, and the leaf-only export also failed. " +
+                $"Chain error: {chainError.GetType().Name}: {chainError.Message}. Fallback error: {fallbackError.GetType().Name}: {fallbackError.Message}",
+                fallbackError);
         }
 
         private static string TryGetFullChainPem(CertificateChain certificateChain, string leafCertificatePem, Action<string>? log)

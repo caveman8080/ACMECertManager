@@ -573,7 +573,7 @@ public sealed class ChallengeServerAndPluginTests
         var pfxBytes = (byte[])method!.Invoke(null, new object[] { leafPem, keyPem })!;
         Assert.NotEmpty(pfxBytes);
 
-        using var loaded = X509CertificateLoader.LoadPkcs12(pfxBytes, (string?)null, X509KeyStorageFlags.EphemeralKeySet);
+        using var loaded = X509CertificateLoader.LoadPkcs12(pfxBytes, AcmeService.PasswordlessPfxPassword, X509KeyStorageFlags.EphemeralKeySet);
         Assert.True(loaded.HasPrivateKey);
         Assert.Equal("CN=example.com", loaded.Subject);
     }
