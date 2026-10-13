@@ -1,8 +1,10 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 using Microsoft.Win32;
@@ -16,6 +18,10 @@ namespace ACMECertManager
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
             RuntimePaths.EnsureRequiredDirectories();
             RuntimePaths.MigrateLegacyFiles();
 
@@ -29,8 +35,60 @@ namespace ACMECertManager
 
         protected override void OnExit(ExitEventArgs e)
         {
+            DispatcherUnhandledException -= OnDispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException -= OnAppDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
             SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             base.OnExit(e);
+        }
+
+        private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            WriteUnhandledExceptionLog("UI exception", e.Exception);
+            e.Handled = true;
+
+            try
+            {
+                var message = string.IsNullOrWhiteSpace(e.Exception?.Message)
+                    ? "An unexpected error occurred."
+                    : e.Exception.Message;
+                System.Windows.MessageBox.Show(message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            catch (Exception)
+            {
+                // The UI may already be shutting down. The exception is logged and marked handled.
+            }
+        }
+
+        private static void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            WriteUnhandledExceptionLog("AppDomain exception", e.ExceptionObject as Exception);
+        }
+
+        private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            WriteUnhandledExceptionLog("unobserved task exception", e.Exception);
+            e.SetObserved();
+        }
+
+        private static void WriteUnhandledExceptionLog(string source, Exception? exception)
+        {
+            try
+            {
+                RuntimePaths.EnsureRequiredDirectories();
+                using var logManager = new LogManager(RuntimePaths.LogsDirectory);
+                if (exception is null)
+                {
+                    logManager.WriteLog($"❌ Unhandled {source}.");
+                    return;
+                }
+
+                logManager.WriteLog($"❌ Unhandled {source}: {exception}");
+            }
+            catch (Exception)
+            {
+                // Last-chance logging must not throw.
+            }
         }
 
         private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)

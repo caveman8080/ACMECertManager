@@ -401,13 +401,24 @@ namespace ACMECertManager
             var pfxPath = string.Empty;
             if (createPfxFile)
             {
-                log?.Invoke("[CERT] Building PFX certificate file...");
-                var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
+                try
+                {
+                    log?.Invoke("[CERT] Building PFX certificate file...");
+                    var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
 
-                pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
-                log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
-                File.WriteAllBytes(pfxPath, pfxBytes);
-                log?.Invoke("[CERT] PFX file saved successfully");
+                    pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
+                    log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
+                    File.WriteAllBytes(pfxPath, pfxBytes);
+                    log?.Invoke("[CERT] PFX file saved successfully");
+                }
+                catch (Exception ex)
+                {
+                    // PEM files are already on disk. Keep the issued certificate and skip the PFX
+                    // rather than failing the whole issuance after a successful ACME order.
+                    pfxPath = string.Empty;
+                    log?.Invoke(
+                        $"[CERT] ⚠️ PFX creation was skipped after PEM files were saved in {certificateOutputDirectory}. {ex.Message}");
+                }
             }
 
             var expires = GetCertificateNotAfterUtc(leafCertificatePem);
@@ -1229,10 +1240,11 @@ namespace ACMECertManager
         }
 
         /// <summary>
-        /// Builds a PFX from the Certes certificate chain. When Certes cannot resolve intermediate/root
-        /// issuers (common with staging chains), falls back to a leaf-only PFX export.
+        /// Builds a passwordless PFX from the Certes certificate chain. Certes throws when the
+        /// password is null, so the export uses an empty password. When the chain cannot be
+        /// packaged, falls back to a leaf-only PFX export.
         /// </summary>
-        private static byte[] BuildPfxBytes(
+        internal static byte[] BuildPfxBytes(
             CertificateChain certificateChain,
             IKey privateKey,
             string friendlyName,
@@ -1242,20 +1254,26 @@ namespace ACMECertManager
         {
             try
             {
-                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, null);
+                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, string.Empty);
                 log?.Invoke("[CERT] PFX file built successfully");
                 return pfxBytes;
             }
-            catch (Exception ex) when (
-                ex is CryptographicException ||
-                ex is InvalidOperationException ||
-                ex is AcmeException ||
-                IsIssuerResolutionFailure(ex))
+            catch (Exception ex)
             {
                 log?.Invoke($"[CERT] ⚠️ PFX build failed ({ex.GetType().Name}: {ex.Message}). Falling back to leaf-only PFX export.");
-                var fallback = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
-                log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
-                return fallback;
+                try
+                {
+                    var fallback = BuildLeafOnlyPfx(leafCertificatePem, privateKeyPem);
+                    log?.Invoke("[CERT] Fallback PFX created (leaf certificate only)");
+                    return fallback;
+                }
+                catch (Exception fallbackEx)
+                {
+                    throw new InvalidOperationException(
+                        "Could not create a passwordless PFX file. The certificate chain export failed, and the leaf-only export also failed. " +
+                        $"Chain error: {ex.GetType().Name}: {ex.Message}. Fallback error: {fallbackEx.GetType().Name}: {fallbackEx.Message}",
+                        fallbackEx);
+                }
             }
         }
 

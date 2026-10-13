@@ -218,31 +218,10 @@ namespace ACMECertManager
                     keyAlgorithm,
                     Log);
 
-                if (createPfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
-                {
-                    throw new InvalidOperationException("PFX output was requested, but certificate.pfx was not created.");
-                }
-
-                var existingIndex = _certificates.FindIndex(existing =>
-                    string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
-                if (existingIndex >= 0)
-                {
-                    _certificates[existingIndex] = cert;
-                }
-                else
-                {
-                    _certificates.Add(cert);
-                }
-
-                CertificateStorage.Save(_certificates);
-                _certificates = CertificateStorage.Load();
-                LoadCertificatesGrid();
+                RecordIssuedCertificate(cert);
 
                 Log($"✅ SUCCESS! Certificate for {cert.Domain} issued. Expires {cert.Expires:yyyy-MM-dd}");
-                var outputSummary = createPfxFile && !string.IsNullOrWhiteSpace(cert.PfxPath)
-                    ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
-                    : $"PEM files saved in:\n{cert.OutputDirectory}";
-                System.Windows.MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                ShowIssuedCertificateResult(cert, createPfxFile);
             }
             catch (InvalidOperationException ex)
             {
@@ -293,6 +272,16 @@ namespace ACMECertManager
             catch (TaskCanceledException ex)
             {
                 Log($"❌ Error: {ex.Message}");
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                if (!string.IsNullOrWhiteSpace(ex.StackTrace))
+                {
+                    Log(ex.StackTrace);
+                }
+
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -573,31 +562,10 @@ namespace ACMECertManager
                     request.KeyAlgorithm,
                     Log);
 
-                if (request.CreatePfxFile && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath)))
-                {
-                    throw new InvalidOperationException("PFX output was requested, but certificate.pfx was not created.");
-                }
-
-                var existingIndex = _certificates.FindIndex(existing =>
-                    string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
-                if (existingIndex >= 0)
-                {
-                    _certificates[existingIndex] = cert;
-                }
-                else
-                {
-                    _certificates.Add(cert);
-                }
-
-                CertificateStorage.Save(_certificates);
-                _certificates = CertificateStorage.Load();
-                LoadCertificatesGrid();
+                RecordIssuedCertificate(cert);
 
                 Log($"✅ SUCCESS! Certificate for {cert.Domain} renewed. Expires {cert.Expires:yyyy-MM-dd}");
-                var outputSummary = request.CreatePfxFile && !string.IsNullOrWhiteSpace(cert.PfxPath)
-                    ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
-                    : $"PEM files saved in:\n{cert.OutputDirectory}";
-                System.Windows.MessageBox.Show($"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)", "Success!", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                ShowIssuedCertificateResult(cert, request.CreatePfxFile);
             }
             catch (InvalidOperationException ex)
             {
@@ -650,6 +618,58 @@ namespace ACMECertManager
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            catch (Exception ex)
+            {
+                Log($"❌ Error: {ex.Message}");
+                if (!string.IsNullOrWhiteSpace(ex.StackTrace))
+                {
+                    Log(ex.StackTrace);
+                }
+
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void RecordIssuedCertificate(CertificateModel cert)
+        {
+            var existingIndex = _certificates.FindIndex(existing =>
+                string.Equals(existing.OutputDirectory, cert.OutputDirectory, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+            {
+                _certificates[existingIndex] = cert;
+            }
+            else
+            {
+                _certificates.Add(cert);
+            }
+
+            CertificateStorage.Save(_certificates);
+            _certificates = CertificateStorage.Load();
+            LoadCertificatesGrid();
+        }
+
+        private void ShowIssuedCertificateResult(CertificateModel cert, bool pfxRequested)
+        {
+            var pfxSkipped = pfxRequested && (string.IsNullOrWhiteSpace(cert.PfxPath) || !File.Exists(cert.PfxPath));
+            if (pfxSkipped)
+            {
+                Log($"⚠️ PFX creation was skipped. PEM files were saved in {cert.OutputDirectory}.");
+                MessageBox.Show(
+                    $"PEM files were saved in:\n{cert.OutputDirectory}\n\nPFX creation was skipped. The certificate was still saved.",
+                    "Certificate saved",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            var outputSummary = pfxRequested && !string.IsNullOrWhiteSpace(cert.PfxPath)
+                ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
+                : $"PEM files saved in:\n{cert.OutputDirectory}";
+            MessageBox.Show(
+                $"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)",
+                "Success!",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
 
         private void Revoke_Click(object sender, RoutedEventArgs e)
