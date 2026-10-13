@@ -249,100 +249,15 @@ namespace ACMECertManager
 
             log?.Invoke($"[ACME] Order contains {authorizations.Count} authorization(s)");
 
-            var authorizationIndex = 0;
-            foreach (var authz in authorizations)
-            {
-                authorizationIndex++;
-                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {authorizations.Count}");
-
-                if (validationMethod == ChallengeValidationMethod.Http01)
-                {
-                    var challenge = await authz.Http();
-                    var httpIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                    await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log);
-                    continue;
-                }
-
-                if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
-                {
-                    var challenge = await authz.TlsAlpn();
-                    var tlsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                    if (challenge is null)
-                    {
-                        throw new InvalidOperationException(
-                            $"TLS-ALPN-01 challenge is not available for '{tlsIdentifier}' from this ACME server.");
-                    }
-
-                    await HandleTlsAuthorizationAsync(challenge, authz, tlsIdentifier, log);
-                    continue;
-                }
-
-                if (dnsPlugin is null)
-                {
-                    throw new InvalidOperationException("DNS-01 selected but no DNS plugin configuration was provided.");
-                }
-
-                log?.Invoke("[DNS-01] Starting DNS challenge validation...");
-                var dnsChallenge = await authz.Dns();
-                var dnsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                var dnsRequest = new DnsChallengeRequest
-                {
-                    Domain = dnsIdentifier,
-                    RecordName = GetDns01TxtRecordName(dnsIdentifier),
-                    Token = dnsChallenge.Token,
-                    KeyAuthorization = dnsChallenge.KeyAuthz,
-                    TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
-                };
-
-                log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
-                log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {dnsIdentifier}");
-                await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
-                log?.Invoke("[DNS-01] DNS record presented");
-
-                var propagationDelay = GetDnsPropagationDelay(dnsPlugin.Credentials);
-                if (propagationDelay > TimeSpan.Zero)
-                {
-                    log?.Invoke($"[DNS-01] Waiting {propagationDelay.TotalSeconds:0} seconds for DNS propagation...");
-                    await Task.Delay(propagationDelay);
-                }
-
-                try
-                {
-                    log?.Invoke("[DNS-01] Sending challenge validation request to ACME server...");
-                    await dnsChallenge.Validate();
-                    log?.Invoke("[DNS-01] Waiting for ACME server to verify challenge...");
-                    await WaitForAuthorizationValidAsync(authz);
-                    log?.Invoke("[DNS-01] DNS challenge validated successfully");
-                }
-                finally
-                {
-                    try
-                    {
-                        log?.Invoke("[DNS-01] Cleaning up DNS record...");
-                        await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
-                        log?.Invoke("[DNS-01] DNS cleanup completed");
-                    }
-                    catch (HttpRequestException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (IOException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (System.Security.SecurityException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                }
-            }
-
-            log?.Invoke("[ACME] All authorizations validated, waiting for order to be ready...");
-            await WaitForOrderReadyAsync(order);
+            var fallbackIdentifier = domains.Length > 0 ? domains[0] : string.Empty;
+            await ValidateOrderAuthorizationsAsync(
+                authorizations,
+                order,
+                fallbackIdentifier,
+                validationMethod,
+                httpDeployment,
+                dnsPlugin,
+                log);
             log?.Invoke("[ACME] Order is ready for finalization");
 
             // Generate cert
@@ -559,6 +474,252 @@ namespace ACMECertManager
             catch (ArgumentException)
             {
                 return DateTime.UtcNow.AddDays(90);
+            }
+        }
+
+        /// <summary>
+        /// Validates each order authorization, then waits until the order is ready.
+        /// A valid authorization is reused and skipped. This still reaches the order-ready wait
+        /// when every authorization was already valid.
+        /// </summary>
+        internal static async Task ValidateOrderAuthorizationsAsync(
+            IReadOnlyList<IAuthorizationContext> authorizations,
+            IOrderContext order,
+            string fallbackIdentifier,
+            ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
+            DnsPluginExecution? dnsPlugin,
+            Action<string>? log)
+        {
+            var authorizationIndex = 0;
+            foreach (var authz in authorizations)
+            {
+                authorizationIndex++;
+                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {authorizations.Count}");
+                await ValidateOneAuthorizationAsync(
+                    authz,
+                    fallbackIdentifier,
+                    validationMethod,
+                    httpDeployment,
+                    dnsPlugin,
+                    log);
+            }
+
+            log?.Invoke("[ACME] All authorizations validated, waiting for order to be ready...");
+            await WaitForOrderReadyAsync(order);
+        }
+
+        private static async Task ValidateOneAuthorizationAsync(
+            IAuthorizationContext authz,
+            string fallbackIdentifier,
+            ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
+            DnsPluginExecution? dnsPlugin,
+            Action<string>? log)
+        {
+            // Read the authorization before selecting a challenge. Let's Encrypt reuses a valid
+            // authorization for about 30 days and lists only the challenge type that was used,
+            // so authz.Http()/TlsAlpn()/Dns() is null for the other methods.
+            var resource = await authz.Resource();
+            var identifier = AuthorizationIdentifierOrFallback(resource, fallbackIdentifier);
+            var displayIdentifier = FormatAuthorizationIdentifier(resource, identifier);
+
+            if (resource.Status == AuthorizationStatus.Valid)
+            {
+                log?.Invoke($"[ACME] Authorization for {displayIdentifier} is already valid (reused), skipping challenge");
+                return;
+            }
+
+            if (validationMethod == ChallengeValidationMethod.Http01)
+            {
+                IChallengeContext? challenge = await authz.Http();
+                if (challenge is null)
+                {
+                    throw await CreateMissingChallengeExceptionAsync(
+                        authz,
+                        resource,
+                        displayIdentifier,
+                        FormatValidationMethod(ChallengeValidationMethod.Http01));
+                }
+
+                await HandleHttpAuthorizationAsync(challenge, authz, identifier, httpDeployment, log);
+                return;
+            }
+
+            if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
+            {
+                IChallengeContext? challenge = await authz.TlsAlpn();
+                if (challenge is null)
+                {
+                    throw await CreateMissingChallengeExceptionAsync(
+                        authz,
+                        resource,
+                        displayIdentifier,
+                        FormatValidationMethod(ChallengeValidationMethod.TlsAlpn01));
+                }
+
+                await HandleTlsAuthorizationAsync(challenge, authz, identifier, log);
+                return;
+            }
+
+            if (dnsPlugin is null)
+            {
+                throw new InvalidOperationException("DNS-01 selected but no DNS plugin configuration was provided.");
+            }
+
+            IChallengeContext? dnsChallenge = await authz.Dns();
+            if (dnsChallenge is null)
+            {
+                throw await CreateMissingChallengeExceptionAsync(
+                    authz,
+                    resource,
+                    displayIdentifier,
+                    FormatValidationMethod(ChallengeValidationMethod.Dns01));
+            }
+
+            await HandleDnsAuthorizationAsync(dnsChallenge, authz, identifier, displayIdentifier, dnsPlugin, log);
+        }
+
+        private static string AuthorizationIdentifierOrFallback(Certes.Acme.Resource.Authorization authorization, string fallbackIdentifier)
+        {
+            var value = authorization.Identifier?.Value;
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackIdentifier))
+            {
+                return fallbackIdentifier;
+            }
+
+            return "unknown";
+        }
+
+        /// <summary>
+        /// Wildcard authorizations identify the base domain and set <see cref="Certes.Acme.Resource.Authorization.Wildcard"/>.
+        /// Logs and errors show the wildcard name, for example *.example.com.
+        /// </summary>
+        private static string FormatAuthorizationIdentifier(Certes.Acme.Resource.Authorization authorization, string identifier)
+        {
+            if (authorization.Wildcard == true &&
+                !identifier.StartsWith("*.", StringComparison.Ordinal))
+            {
+                return "*." + identifier;
+            }
+
+            return identifier;
+        }
+
+        private static async Task<InvalidOperationException> CreateMissingChallengeExceptionAsync(
+            IAuthorizationContext authz,
+            Certes.Acme.Resource.Authorization resource,
+            string displayIdentifier,
+            string requestedMethod)
+        {
+            var offered = await DescribeOfferedChallengeTypesAsync(authz, resource);
+            return new InvalidOperationException(
+                $"{requestedMethod} challenge is not available for '{displayIdentifier}'. Offered challenge types: {offered}.");
+        }
+
+        private static async Task<string> DescribeOfferedChallengeTypesAsync(
+            IAuthorizationContext authz,
+            Certes.Acme.Resource.Authorization resource)
+        {
+            var types = ReadChallengeTypes(resource.Challenges?.Select(challenge => challenge.Type));
+            if (types.Count == 0)
+            {
+                var contexts = await authz.Challenges();
+                types = ReadChallengeTypes(contexts.Select(challenge => challenge.Type));
+            }
+
+            return types.Count == 0 ? "none" : string.Join(", ", types);
+        }
+
+        private static List<string> ReadChallengeTypes(IEnumerable<string?>? types)
+        {
+            var result = new List<string>();
+            if (types is null)
+            {
+                return result;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var type in types)
+            {
+                if (string.IsNullOrWhiteSpace(type) || !seen.Add(type))
+                {
+                    continue;
+                }
+
+                result.Add(type);
+            }
+
+            return result;
+        }
+
+        private static async Task HandleDnsAuthorizationAsync(
+            IChallengeContext dnsChallenge,
+            IAuthorizationContext authz,
+            string identifier,
+            string displayIdentifier,
+            DnsPluginExecution dnsPlugin,
+            Action<string>? log)
+        {
+            log?.Invoke("[DNS-01] Starting DNS challenge validation...");
+            var dnsRequest = new DnsChallengeRequest
+            {
+                Domain = identifier,
+                RecordName = GetDns01TxtRecordName(identifier),
+                Token = dnsChallenge.Token,
+                KeyAuthorization = dnsChallenge.KeyAuthz,
+                TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
+            };
+
+            log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
+            log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {displayIdentifier}");
+            await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
+            log?.Invoke("[DNS-01] DNS record presented");
+
+            var propagationDelay = GetDnsPropagationDelay(dnsPlugin.Credentials);
+            if (propagationDelay > TimeSpan.Zero)
+            {
+                log?.Invoke($"[DNS-01] Waiting {propagationDelay.TotalSeconds:0} seconds for DNS propagation...");
+                await Task.Delay(propagationDelay);
+            }
+
+            try
+            {
+                log?.Invoke("[DNS-01] Sending challenge validation request to ACME server...");
+                await dnsChallenge.Validate();
+                log?.Invoke("[DNS-01] Waiting for ACME server to verify challenge...");
+                await WaitForAuthorizationValidAsync(authz);
+                log?.Invoke("[DNS-01] DNS challenge validated successfully");
+            }
+            finally
+            {
+                try
+                {
+                    log?.Invoke("[DNS-01] Cleaning up DNS record...");
+                    await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
+                    log?.Invoke("[DNS-01] DNS cleanup completed");
+                }
+                catch (HttpRequestException ex)
+                {
+                    log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                }
+                catch (IOException ex)
+                {
+                    log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                }
+                catch (System.Security.SecurityException ex)
+                {
+                    log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
+                }
             }
         }
 
