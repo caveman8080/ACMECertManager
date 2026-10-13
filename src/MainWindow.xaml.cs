@@ -668,7 +668,7 @@ namespace ACMECertManager
                 ? $"PEM + PFX files saved in:\n{cert.OutputDirectory}"
                 : $"PEM files saved in:\n{cert.OutputDirectory}";
             MessageBox.Show(
-                $"{outputSummary}\n\nTip: Reload your web server (IIS/Nginx)",
+                outputSummary,
                 "Success!",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
