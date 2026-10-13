@@ -121,6 +121,12 @@ namespace ACMECertManager
         public const string LetsEncryptProductionDirectoryUrl = "https://acme-v02.api.letsencrypt.org/directory";
         public const string LetsEncryptStagingDirectoryUrl = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
+        /// <summary>
+        /// Password for passwordless PKCS#12 files. Certes throws when this is null, so export and
+        /// import both use an empty password. Keys are not password-protected.
+        /// </summary>
+        internal const string PasswordlessPfxPassword = "";
+
         private static readonly TimeSpan DefaultPollDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MaxWaitForAuthorization = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan MaxWaitForOrderReady = TimeSpan.FromMinutes(2);
@@ -401,20 +407,22 @@ namespace ACMECertManager
             var pfxPath = string.Empty;
             if (createPfxFile)
             {
+                var candidatePfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
                 try
                 {
                     log?.Invoke("[CERT] Building PFX certificate file...");
                     var pfxBytes = BuildPfxBytes(cert, privateKey, domains[0], leafCertificatePem, privateKeyPem, log);
 
-                    pfxPath = Path.Join(certificateOutputDirectory, "certificate.pfx");
-                    log?.Invoke($"[CERT] Saving PFX to: {pfxPath}");
-                    File.WriteAllBytes(pfxPath, pfxBytes);
+                    log?.Invoke($"[CERT] Saving PFX to: {candidatePfxPath}");
+                    SavePfxFile(candidatePfxPath, pfxBytes);
+                    pfxPath = candidatePfxPath;
                     log?.Invoke("[CERT] PFX file saved successfully");
                 }
                 catch (Exception ex)
                 {
-                    // PEM files are already on disk. Keep the issued certificate and skip the PFX
-                    // rather than failing the whole issuance after a successful ACME order.
+                    // PEM files are already on disk. Drop a partial PFX so revocation does not
+                    // prefer it over cert.pem, then keep the issued certificate.
+                    DeleteFileIfExists(candidatePfxPath);
                     pfxPath = string.Empty;
                     log?.Invoke(
                         $"[CERT] ⚠️ PFX creation was skipped after PEM files were saved in {certificateOutputDirectory}. {ex.Message}");
@@ -1092,7 +1100,7 @@ namespace ACMECertManager
             {
                 using var cert = X509CertificateLoader.LoadPkcs12FromFile(
                     pfxPath,
-                    (string?)null,
+                    PasswordlessPfxPassword,
                     X509KeyStorageFlags.EphemeralKeySet);
                 return cert.Export(X509ContentType.Cert);
             }
@@ -1236,7 +1244,54 @@ namespace ACMECertManager
         private static byte[] BuildLeafOnlyPfx(string leafCertificatePem, string privateKeyPem)
         {
             using var certificateWithKey = X509Certificate2.CreateFromPem(leafCertificatePem, privateKeyPem);
-            return certificateWithKey.Export(X509ContentType.Pfx);
+            return certificateWithKey.Export(X509ContentType.Pfx, PasswordlessPfxPassword);
+        }
+
+        /// <summary>
+        /// Writes a PFX by saving a temp file in the same directory and then replacing the destination.
+        /// A failed write deletes the temp file and any partial destination so revocation will not
+        /// load a truncated certificate.pfx ahead of cert.pem.
+        /// </summary>
+        internal static void SavePfxFile(string destinationPath, byte[] pfxBytes)
+            => SavePfxFile(destinationPath, pfxBytes, static (path, bytes) => File.WriteAllBytes(path, bytes));
+
+        internal static void SavePfxFile(string destinationPath, byte[] pfxBytes, Action<string, byte[]> writeTempFile)
+        {
+            var directory = Path.GetDirectoryName(destinationPath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                throw new InvalidOperationException("PFX path must include a directory.");
+            }
+
+            var tempPath = Path.Join(directory, $".{Path.GetFileName(destinationPath)}.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                writeTempFile(tempPath, pfxBytes);
+                File.Move(tempPath, destinationPath, overwrite: true);
+            }
+            catch (Exception)
+            {
+                DeleteFileIfExists(tempPath);
+                DeleteFileIfExists(destinationPath);
+                throw;
+            }
+        }
+
+        private static void DeleteFileIfExists(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Cleanup must not hide the original PFX failure.
+            }
         }
 
         /// <summary>
@@ -1254,7 +1309,7 @@ namespace ACMECertManager
         {
             try
             {
-                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, string.Empty);
+                var pfxBytes = certificateChain.ToPfx(privateKey).Build(friendlyName, PasswordlessPfxPassword);
                 log?.Invoke("[CERT] PFX file built successfully");
                 return pfxBytes;
             }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -35,7 +36,7 @@ public sealed class PfxExportTests
 
         using var loaded = X509CertificateLoader.LoadPkcs12(
             pfxBytes,
-            string.Empty,
+            AcmeService.PasswordlessPfxPassword,
             X509KeyStorageFlags.EphemeralKeySet);
         using var leaf = X509Certificate2.CreateFromPem(sample.LeafPem);
 
@@ -44,7 +45,7 @@ public sealed class PfxExportTests
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(
             pfxBytes,
-            string.Empty,
+            AcmeService.PasswordlessPfxPassword,
             X509KeyStorageFlags.EphemeralKeySet);
         try
         {
@@ -78,7 +79,7 @@ public sealed class PfxExportTests
         Assert.Contains(logs, line => line.Contains("Falling back to leaf-only PFX export", StringComparison.Ordinal));
         using var loaded = X509CertificateLoader.LoadPkcs12(
             pfxBytes,
-            string.Empty,
+            AcmeService.PasswordlessPfxPassword,
             X509KeyStorageFlags.EphemeralKeySet);
         Assert.True(loaded.HasPrivateKey);
         Assert.Contains("example.com", loaded.Subject, StringComparison.Ordinal);
@@ -101,6 +102,95 @@ public sealed class PfxExportTests
 
         Assert.Contains("leaf-only", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("passwordless PFX", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LoadCertificateForRevocation_LoadsPfxFromPasswordlessChainExport()
+    {
+        var sample = CreateChain(KeyAlgorithm.ES256);
+        var pfxBytes = AcmeService.BuildPfxBytes(
+            sample.Chain,
+            sample.LeafKey,
+            "example.com",
+            sample.LeafPem,
+            sample.LeafKeyPem,
+            null);
+
+        var outputDirectory = CreateTempDirectory();
+        var pfxPath = Path.Join(outputDirectory, "certificate.pfx");
+        try
+        {
+            AcmeService.SavePfxFile(pfxPath, pfxBytes);
+            Assert.False(Directory.EnumerateFiles(outputDirectory, "*.tmp").Any());
+
+            var model = new CertificateModel
+            {
+                Domain = "example.com",
+                OutputDirectory = outputDirectory,
+                PfxPath = string.Empty,
+                CertificatePemPath = Path.Join(outputDirectory, "cert.pem")
+            };
+
+            var der = AcmeService.LoadCertificateForRevocation(model);
+            using var revoked = X509CertificateLoader.LoadCertificate(der);
+            using var leaf = X509Certificate2.CreateFromPem(sample.LeafPem);
+            Assert.Equal(leaf.Thumbprint, revoked.Thumbprint);
+        }
+        finally
+        {
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SavePfxFile_WhenWriteFails_RemovesPartialPfxAndTempFile()
+    {
+        var sample = CreateChain(KeyAlgorithm.RS256);
+        var outputDirectory = CreateTempDirectory();
+        var pfxPath = Path.Join(outputDirectory, "certificate.pfx");
+        var certPemPath = Path.Join(outputDirectory, "cert.pem");
+        try
+        {
+            File.WriteAllText(certPemPath, sample.LeafPem);
+            File.WriteAllBytes(pfxPath, [0x30, 0x80]);
+
+            var ex = Assert.Throws<IOException>(() =>
+                AcmeService.SavePfxFile(pfxPath, [1, 2, 3], (tempPath, _) =>
+                {
+                    File.WriteAllBytes(tempPath, [9, 9, 9]);
+                    File.WriteAllBytes(pfxPath, [0x00]);
+                    throw new IOException("disk full");
+                }));
+
+            Assert.Equal("disk full", ex.Message);
+            Assert.False(File.Exists(pfxPath));
+            Assert.False(Directory.EnumerateFiles(outputDirectory, "*.tmp").Any());
+            Assert.True(File.Exists(certPemPath));
+
+            var model = new CertificateModel
+            {
+                Domain = "example.com",
+                OutputDirectory = outputDirectory,
+                PfxPath = string.Empty,
+                CertificatePemPath = certPemPath
+            };
+
+            var der = AcmeService.LoadCertificateForRevocation(model);
+            using var loaded = X509CertificateLoader.LoadCertificate(der);
+            using var leaf = X509Certificate2.CreateFromPem(sample.LeafPem);
+            Assert.Equal(leaf.Thumbprint, loaded.Thumbprint);
+        }
+        finally
+        {
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    private static string CreateTempDirectory()
+    {
+        var path = Path.Join(Path.GetTempPath(), "acm-pfx-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
     }
 
     private static ChainSample CreateChain(KeyAlgorithm algorithm)
