@@ -825,7 +825,7 @@ namespace ACMECertManager
                     System.IO.Directory.CreateDirectory(networkTarget);
                     var path = Path.Join(networkTarget, token);
                     await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine);
-                    log?.Invoke($"[HTTP-01] Challenge file written to network/local path: {path}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Challenge file written to network/local path: {path}"));
                     return path;
 
                 case HttpChallengeDeploymentMethod.Ftp:
@@ -837,7 +837,8 @@ namespace ACMECertManager
                     var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : Uri.UnescapeDataString(ftpUri.AbsolutePath);
                     var ftpRemotePath = CombineSftpPath(ftpDirectory, token);
                     var ftpPayload = Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine);
-                    log?.Invoke($"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)} ({ftpTarget})"));
 
                     await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpPort))
                     {
@@ -846,7 +847,7 @@ namespace ACMECertManager
                         await ftpClient.Disconnect();
                     }
 
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over FTP: {ftpRemotePath}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over FTP: {ftpRemotePath}"));
                     return ftpRemotePath;
 
                 case HttpChallengeDeploymentMethod.Sftp:
@@ -857,7 +858,8 @@ namespace ACMECertManager
                     var remoteDirectory = string.IsNullOrWhiteSpace(sftpUri.AbsolutePath) ? "/" : Uri.UnescapeDataString(sftpUri.AbsolutePath);
                     var remoteFilePath = CombineSftpPath(remoteDirectory, token);
                     var sftpPayload = Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine);
-                    log?.Invoke($"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)} ({sftpTarget})"));
 
                     await Task.Run(() =>
                     {
@@ -878,7 +880,7 @@ namespace ACMECertManager
                         }
                     });
 
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}"));
                     return remoteFilePath;
 
                 case HttpChallengeDeploymentMethod.WebDav:
@@ -886,10 +888,11 @@ namespace ACMECertManager
                     var webDavUri = EnsureHttpUri(webDavDirectory, "WebDAV");
                     var webDavPort = HttpDeploymentSupport.ResolvePort(options.Method, webDavUri, options.Port);
                     var webDavUrl = CombineUrl(webDavDirectory, token);
-                    log?.Invoke($"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavUri.Host, webDavPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavUri.Host, webDavPort)} ({webDavDirectory})"));
                     await EnsureWebDavDirectoriesAsync(webDavDirectory, options, log);
                     await SendWebDavFileAsync(HttpMethod.Put, webDavUrl, options, keyAuthorization + Environment.NewLine, log);
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over WebDav: {webDavUrl}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over WebDav: {webDavUrl}"));
                     return webDavUrl;
 
                 case HttpChallengeDeploymentMethod.Rest:
@@ -897,9 +900,10 @@ namespace ACMECertManager
                     var restTarget = HttpDeploymentSupport.WithExplicitPort(options.Target.Trim(), options.Port);
                     var restUri = EnsureHttpUri(restTarget, "REST");
                     var restPort = HttpDeploymentSupport.ResolvePort(options.Method, restUri, options.Port);
-                    log?.Invoke($"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restUri.Host, restPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restUri.Host, restPort)} ({restTarget})"));
                     await SendRestChallengeRequestAsync(options, restTarget, "present", token, keyAuthorization, identifier);
-                    log?.Invoke($"[HTTP-01] Presented challenge via REST endpoint: {restTarget}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Presented challenge via REST endpoint: {restTarget}"));
                     return restTarget;
 
                 default:
@@ -932,7 +936,8 @@ namespace ACMECertManager
                     var ftpPort = HttpDeploymentSupport.ResolvePort(options.Method, ftpUri, options.Port);
                     var ftpUsername = ResolveUsername(options, ftpUri, "anonymous");
                     var ftpPassword = ResolvePassword(options, ftpUri);
-                    log?.Invoke($"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)} ({ftpCleanupTarget})"));
 
                     await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpPort))
                     {
@@ -953,7 +958,8 @@ namespace ACMECertManager
                     var sftpCleanupTarget = PrepareHttpTarget(options, "SFTP target URL");
                     var sftpUri = EnsureUri(sftpCleanupTarget, "sftp");
                     var sftpPort = HttpDeploymentSupport.ResolvePort(options.Method, sftpUri, options.Port);
-                    log?.Invoke($"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)} ({sftpCleanupTarget})"));
                     await Task.Run(() =>
                     {
                         using var client = new SftpClient(sftpUri.Host, sftpPort, options.Username, options.Password);
@@ -974,7 +980,8 @@ namespace ACMECertManager
                         if (Uri.TryCreate(deploymentKey, UriKind.Absolute, out var webDavCleanupUri))
                         {
                             var webDavCleanupPort = HttpDeploymentSupport.ResolvePort(options.Method, webDavCleanupUri, options.Port);
-                            log?.Invoke($"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavCleanupUri.Host, webDavCleanupPort)}");
+                            log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                                $"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavCleanupUri.Host, webDavCleanupPort)} ({deploymentKey})"));
                         }
 
                         var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
@@ -994,7 +1001,8 @@ namespace ACMECertManager
                     var restCleanupTarget = HttpDeploymentSupport.WithExplicitPort(options.Target.Trim(), options.Port);
                     var restCleanupUri = EnsureHttpUri(restCleanupTarget, "REST");
                     var restCleanupPort = HttpDeploymentSupport.ResolvePort(options.Method, restCleanupUri, options.Port);
-                    log?.Invoke($"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restCleanupUri.Host, restCleanupPort)}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restCleanupUri.Host, restCleanupPort)} ({restCleanupTarget})"));
                     await SendRestChallengeRequestAsync(options, restCleanupTarget, "cleanup", token, keyAuthorization, identifier);
                     log?.Invoke("[HTTP-01] Cleanup request sent to REST endpoint");
                     break;
@@ -1028,32 +1036,33 @@ namespace ACMECertManager
                 if (response.IsSuccessStatusCode &&
                     string.Equals(content.Trim(), keyAuthorization.Trim(), StringComparison.Ordinal))
                 {
-                    log?.Invoke($"[HTTP-01] Probe succeeded at {probeUrl}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe succeeded at {probeUrl}"));
                 }
                 else
                 {
-                    log?.Invoke($"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}"));
                 }
             }
             catch (HttpRequestException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (TaskCanceledException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (IOException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (System.Security.SecurityException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
         }
 
@@ -1278,7 +1287,8 @@ namespace ACMECertManager
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 !string.Equals(uri.Scheme, expectedScheme, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException($"Expected a valid {expectedScheme.ToUpperInvariant()} URL, but got '{url}'.");
+                throw new InvalidOperationException(
+                    $"Expected a valid {expectedScheme.ToUpperInvariant()} URL, but got '{HttpDeploymentSupport.RedactUrlForLog(url)}'.");
             }
 
             return uri;
@@ -1346,7 +1356,8 @@ namespace ACMECertManager
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
-                throw new InvalidOperationException($"{protocol} target must be an absolute http or https URL, but got '{url}'.");
+                throw new InvalidOperationException(
+                    $"{protocol} target must be an absolute http or https URL, but got '{HttpDeploymentSupport.RedactUrlForLog(url)}'.");
             }
 
             return uri;
@@ -1373,7 +1384,7 @@ namespace ACMECertManager
                     or HttpStatusCode.NoContent
                     or HttpStatusCode.MethodNotAllowed)
                 {
-                    log?.Invoke($"[HTTP-01] WebDAV folder ready: {collectionUrl}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] WebDAV folder ready: {collectionUrl}"));
                     continue;
                 }
 
@@ -1403,7 +1414,7 @@ namespace ACMECertManager
             }
 
             response.EnsureSuccessStatusCode();
-            log?.Invoke($"[HTTP-01] WebDAV {method.Method} completed for {url}");
+            log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] WebDAV {method.Method} completed for {url}"));
         }
 
         private sealed class SshNetSftpSession : ISftpFileSession

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Renci.SshNet.Common;
 using Renci.SshNet.Sftp;
@@ -144,7 +145,93 @@ namespace ACMECertManager
             return $"{uri.Scheme}://{user}{host}:{explicitPort.Value}{pathAndQuery}{uri.Fragment}";
         }
 
-        internal static string FormatHostPort(string host, int port) => $"{host}:{port}";
+        internal static string FormatHostPort(string host, int port)
+        {
+            var safeHost = host ?? string.Empty;
+            var at = safeHost.LastIndexOf('@');
+            if (at >= 0 && at < safeHost.Length - 1)
+            {
+                safeHost = safeHost[(at + 1)..];
+            }
+
+            return $"{safeHost}:{port}";
+        }
+
+        private static readonly Regex AbsoluteUrlPattern = new(
+            @"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'""<>]+",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Removes URI user info and replaces any query or fragment before a URL is written to a log or error.
+        /// Non-URL text, including local and UNC paths, is left unchanged. Embedded URLs inside a longer message are redacted too.
+        /// </summary>
+        internal static string RedactUrlForLog(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value ?? string.Empty;
+            }
+
+            return AbsoluteUrlPattern.Replace(value, match => RedactSingleUrl(match.Value));
+        }
+
+        private static string RedactSingleUrl(string url)
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host))
+            {
+                var host = uri.IdnHost;
+                if (host.Contains(':'))
+                {
+                    host = "[" + host + "]";
+                }
+
+                var port = uri.Port is >= 1 and <= 65535 && !uri.IsDefaultPort
+                    ? ":" + uri.Port.ToString()
+                    : string.Empty;
+                var path = string.IsNullOrEmpty(uri.AbsolutePath) ? "/" : uri.AbsolutePath;
+                var tail = string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
+                    ? string.Empty
+                    : "?…";
+                return $"{uri.Scheme}://{host}{port}{path}{tail}";
+            }
+
+            var cut = IndexOfQueryOrFragment(url);
+            var withoutTail = cut >= 0 ? url[..cut] : url;
+            var schemeSep = withoutTail.IndexOf("://", StringComparison.Ordinal);
+            if (schemeSep >= 0)
+            {
+                var authStart = schemeSep + 3;
+                var slash = withoutTail.IndexOf('/', authStart);
+                var authEnd = slash >= 0 ? slash : withoutTail.Length;
+                if (authEnd > authStart)
+                {
+                    var at = withoutTail.LastIndexOf('@', authEnd - 1);
+                    if (at >= authStart)
+                    {
+                        withoutTail = withoutTail[..authStart] + withoutTail[(at + 1)..];
+                    }
+                }
+            }
+
+            return cut >= 0 ? withoutTail + "?…" : withoutTail;
+        }
+
+        private static int IndexOfQueryOrFragment(string url)
+        {
+            var query = url.IndexOf('?');
+            var fragment = url.IndexOf('#');
+            if (query < 0)
+            {
+                return fragment;
+            }
+
+            if (fragment < 0)
+            {
+                return query;
+            }
+
+            return Math.Min(query, fragment);
+        }
 
         internal static bool ShouldProbe(HttpChallengeDeploymentOptions options)
         {
@@ -178,7 +265,7 @@ namespace ACMECertManager
 
         internal static string WebDavConflictMessage(string url)
         {
-            return $"WebDAV could not create '{url}'. The parent folder is missing, or the path uses the wrong case. WebDAV paths are case-sensitive.";
+            return $"WebDAV could not create '{RedactUrlForLog(url)}'. The parent folder is missing, or the path uses the wrong case. WebDAV paths are case-sensitive.";
         }
 
         internal static void EnsureWebDavMkcolStatus(int statusCode, string url)
@@ -195,7 +282,7 @@ namespace ACMECertManager
             }
 
             throw new InvalidOperationException(
-                $"WebDAV MKCOL for '{url}' failed with HTTP status {statusCode}.");
+                $"WebDAV MKCOL for '{RedactUrlForLog(url)}' failed with HTTP status {statusCode}.");
         }
 
         /// <summary>
@@ -216,8 +303,8 @@ namespace ACMECertManager
                 return;
             }
 
-            log?.Invoke(
-                $"[HTTP-01] SFTP upload did not store the challenge file ({firstFailure.Message}). Creating missing folders and trying again.");
+            log?.Invoke(RedactUrlForLog(
+                $"[HTTP-01] SFTP upload did not store the challenge file ({firstFailure.Message}). Creating missing folders and trying again."));
             EnsureSftpDirectories(session, remoteDirectory, log);
 
             var retryFailure = TryUpload(session, remoteFilePath, payload);
@@ -250,8 +337,8 @@ namespace ACMECertManager
                 }
                 catch (Exception ex) when (IsToleratedSftpDirectoryError(ex))
                 {
-                    log?.Invoke(
-                        $"[HTTP-01] SFTP folder '{current}' was not created ({ex.Message}). Continuing because the folder may already exist.");
+                    log?.Invoke(RedactUrlForLog(
+                        $"[HTTP-01] SFTP folder '{current}' was not created ({ex.Message}). Continuing because the folder may already exist."));
                 }
             }
         }
@@ -281,7 +368,7 @@ namespace ACMECertManager
             }
             catch (Exception ex)
             {
-                log?.Invoke($"{logPrefix} Cleanup warning: {ex.Message}");
+                log?.Invoke(RedactUrlForLog($"{logPrefix} Cleanup warning: {ex.Message}"));
             }
         }
 
@@ -315,7 +402,7 @@ namespace ACMECertManager
             }
             catch (Exception ex) when (IsToleratedSftpDirectoryError(ex))
             {
-                log?.Invoke($"[HTTP-01] Could not check SFTP folder '{path}': {ex.Message}");
+                log?.Invoke(RedactUrlForLog($"[HTTP-01] Could not check SFTP folder '{path}': {ex.Message}"));
                 return false;
             }
         }

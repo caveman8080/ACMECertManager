@@ -77,6 +77,64 @@ public sealed class HttpDeploymentSupportTests
     public void FormatHostPort_UsesResolvedEndpoint()
     {
         Assert.Equal("nas.example:22", HttpDeploymentSupport.FormatHostPort("nas.example", 22));
+        Assert.Equal("nas.example:22", HttpDeploymentSupport.FormatHostPort("deploy-user:not-a-secret@nas.example", 22));
+    }
+
+    [Fact]
+    public void RedactUrlForLog_StripsUserInfoQueryAndFragment()
+    {
+        Assert.Equal(
+            "https://nas.example:8443/Share/.well-known/acme-challenge/token?…",
+            HttpDeploymentSupport.RedactUrlForLog(
+                "https://deploy-user:not-a-secret@nas.example:8443/Share/.well-known/acme-challenge/token?access=not-a-secret#frag"));
+        Assert.Equal(
+            "ftp://server/files/.well-known/acme-challenge",
+            HttpDeploymentSupport.RedactUrlForLog("ftp://deploy-user:not-a-secret@server/files/.well-known/acme-challenge"));
+        Assert.Equal(
+            "sftp://server:2222/files?…",
+            HttpDeploymentSupport.RedactUrlForLog("sftp://deploy-user:not-a-secret@server:2222/files?x=not-a-secret"));
+        Assert.Equal(
+            "https://host/endpoint?…",
+            HttpDeploymentSupport.RedactUrlForLog("https://host/endpoint#not-a-secret"));
+        Assert.Equal(
+            "https://host/path",
+            HttpDeploymentSupport.RedactUrlForLog("https://deploy-user@host/path"));
+        Assert.Equal(
+            "https://[2001:db8::1]/Share?…",
+            HttpDeploymentSupport.RedactUrlForLog("https://deploy-user:not-a-secret@[2001:db8::1]/Share?x=not-a-secret"));
+    }
+
+    [Fact]
+    public void RedactUrlForLog_LeavesPathsAndCleanUrlsAlone()
+    {
+        Assert.Equal(string.Empty, HttpDeploymentSupport.RedactUrlForLog(null));
+        Assert.Equal(@"C:\www\.well-known\acme-challenge", HttpDeploymentSupport.RedactUrlForLog(@"C:\www\.well-known\acme-challenge"));
+        Assert.Equal(@"\\server\share\token", HttpDeploymentSupport.RedactUrlForLog(@"\\server\share\token"));
+        Assert.Equal("/files/token", HttpDeploymentSupport.RedactUrlForLog("/files/token"));
+        Assert.Equal("https://host/endpoint", HttpDeploymentSupport.RedactUrlForLog("https://host/endpoint"));
+    }
+
+    [Fact]
+    public void RedactUrlForLog_RedactsUrlsEmbeddedInLogAndErrorText()
+    {
+        const string secret = "not-a-secret";
+        var message = HttpDeploymentSupport.RedactUrlForLog(
+            "Presented challenge via REST endpoint: https://deploy-user:" + secret + "@host/hook?token=" + secret);
+
+        Assert.Equal("Presented challenge via REST endpoint: https://host/hook?…", message);
+        Assert.DoesNotContain(secret, message);
+
+        var conflict = HttpDeploymentSupport.WebDavConflictMessage(
+            "https://deploy-user:" + secret + "@nas.example/Share/missing?x=" + secret);
+        Assert.Contains("https://nas.example/Share/missing?…", conflict);
+        Assert.DoesNotContain(secret, conflict);
+
+        var status = Assert.Throws<InvalidOperationException>(() =>
+            HttpDeploymentSupport.EnsureWebDavMkcolStatus(
+                (int)HttpStatusCode.InternalServerError,
+                "https://deploy-user:" + secret + "@nas.example/Share"));
+        Assert.Contains("https://nas.example/Share", status.Message);
+        Assert.DoesNotContain(secret, status.Message);
     }
 
     [Fact]
