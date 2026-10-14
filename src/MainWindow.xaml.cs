@@ -462,7 +462,7 @@ namespace ACMECertManager
                     pageToShow = SettingsPage;
                     SetSectionHeader(
                         "Settings",
-                        "Manage DNS secrets and application logging preferences.");
+                        "Manage DNS and HTTP upload secrets, and application logging preferences.");
                     break;
                 case "Logs":
                     LogsPage.Visibility = Visibility.Visible;
@@ -875,6 +875,24 @@ namespace ACMECertManager
             pnlHttpRest.Visibility = usesRestOptions ? Visibility.Visible : Visibility.Collapsed;
             pnlHttpPublicProbe.Visibility = usesProbe ? Visibility.Visible : Visibility.Collapsed;
 
+            if (txtHttpTarget is not null)
+            {
+                txtHttpTarget.PlaceholderText = HttpDeploymentSupport.TargetPlaceholder(method);
+            }
+
+            if (txtHttpPort is not null)
+            {
+                txtHttpPort.PlaceholderText = HttpDeploymentSupport.PortPlaceholder(method);
+            }
+
+            if (txtHttpTargetHint is not null)
+            {
+                txtHttpTargetHint.Text = method == HttpChallengeDeploymentMethod.Rest
+                    ? "Receives JSON with action, domain, token, keyAuthorization, and relativePath."
+                    : "If this path does not already end with .well-known/acme-challenge, that folder is added automatically.";
+                txtHttpTargetHint.Visibility = usesTarget ? Visibility.Visible : Visibility.Collapsed;
+            }
+
             txtRelaunchAsAdmin.Visibility = !IsRunningAsAdministrator() && RequiresElevationForSelectedValidation()
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -890,7 +908,8 @@ namespace ACMECertManager
             var method = GetSelectedHttpDeploymentMethod();
             var target = txtHttpTarget?.Text?.Trim() ?? string.Empty;
             var username = txtHttpUsername?.Text?.Trim() ?? string.Empty;
-            var password = txtHttpPassword?.Password?.Trim() ?? string.Empty;
+            var password = txtHttpPassword?.Password ?? string.Empty;
+            var bearerToken = txtHttpBearerToken?.Password ?? string.Empty;
             var publicProbeTemplate = txtHttpPublicProbeTemplate?.Text?.Trim() ?? string.Empty;
 
             if (method != HttpChallengeDeploymentMethod.SelfHosted && string.IsNullOrWhiteSpace(target))
@@ -898,21 +917,40 @@ namespace ACMECertManager
                 throw new InvalidOperationException("HTTP-01 target is required for the selected deployment method.");
             }
 
-            return new HttpChallengeDeploymentOptions
+            return AcmeService.CreateHttpDeploymentOptions(
+                method,
+                target,
+                username,
+                password,
+                publicProbeTemplate,
+                txtHttpRestMethod?.Text,
+                txtHttpHeaderName?.Text,
+                txtHttpHeaderValue?.Text,
+                bearerToken,
+                chkHttpSkipTlsValidation?.IsChecked == true,
+                ReadExplicitHttpPort(method),
+                chkHttpDisablePublicProbe?.IsChecked == true);
+        }
+
+        private int? ReadExplicitHttpPort(HttpChallengeDeploymentMethod method)
+        {
+            if (!HttpDeploymentSupport.UsesExplicitPort(method))
             {
-                Method = method,
-                Target = target,
-                Username = username,
-                Password = password,
-                PublicValidationUrlTemplate = string.IsNullOrWhiteSpace(publicProbeTemplate)
-                    ? "http://{domain}/.well-known/acme-challenge/{token}"
-                    : publicProbeTemplate,
-                RestMethod = txtHttpRestMethod?.Text?.Trim() ?? "POST",
-                AdditionalHeaderName = txtHttpHeaderName?.Text?.Trim() ?? string.Empty,
-                AdditionalHeaderValue = txtHttpHeaderValue?.Text?.Trim() ?? string.Empty,
-                BearerToken = txtHttpBearerToken?.Text?.Trim() ?? string.Empty,
-                SkipTlsCertificateValidation = chkHttpSkipTlsValidation?.IsChecked == true
-            };
+                return null;
+            }
+
+            var raw = txtHttpPort?.Text?.Trim() ?? string.Empty;
+            if (raw.Length == 0)
+            {
+                return null;
+            }
+
+            if (!int.TryParse(raw, out var port) || port is < 1 or > 65535)
+            {
+                throw new InvalidOperationException("Port must be a whole number from 1 to 65535, or left blank to use the default for this method.");
+            }
+
+            return port;
         }
 
         private HttpChallengeDeploymentMethod GetSelectedHttpDeploymentMethod()
@@ -1195,10 +1233,15 @@ namespace ACMECertManager
         {
             try
             {
-                var all = DnsSecretStorage.LoadAll();
-                if (all.Count == 0)
+                var hasDnsSecrets = DnsSecretStorage.LoadAll().Any(entry => entry.Credentials is { Count: > 0 });
+                var hasHttpCredentials = HttpUploadCredentialStore.List(CertificateStorage.Load()).Count > 0;
+                if (!hasDnsSecrets && !hasHttpCredentials)
                 {
-                    MessageBox.Show("No DNS plugin secrets are currently stored.", "Stored DNS Secrets", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(
+                        "No DNS plugin secrets or HTTP upload credentials are currently stored.",
+                        "Stored Secrets",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
                     return;
                 }
 

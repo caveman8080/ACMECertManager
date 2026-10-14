@@ -22,6 +22,7 @@ namespace ACMECertManager
 
         public string HttpDeploymentMethod { get; set; } = string.Empty;
         public string HttpTarget { get; set; } = string.Empty;
+        public int? HttpPort { get; set; }
         public string HttpUsername { get; set; } = string.Empty;
         public string HttpPassword { get; set; } = string.Empty;
         public string HttpPublicValidationUrlTemplate { get; set; } = string.Empty;
@@ -30,5 +31,6 @@ namespace ACMECertManager
         public string HttpAdditionalHeaderValue { get; set; } = string.Empty;
         public string HttpBearerToken { get; set; } = string.Empty;
         public bool HttpSkipTlsCertificateValidation { get; set; }
+        public bool HttpDisablePublicProbe { get; set; }
     }
 }
