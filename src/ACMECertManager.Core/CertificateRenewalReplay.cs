@@ -193,7 +193,9 @@ namespace ACMECertManager
                 AdditionalHeaderName = model.HttpAdditionalHeaderName ?? string.Empty,
                 AdditionalHeaderValue = model.HttpAdditionalHeaderValue ?? string.Empty,
                 BearerToken = model.HttpBearerToken ?? string.Empty,
-                SkipTlsCertificateValidation = model.HttpSkipTlsCertificateValidation
+                SkipTlsCertificateValidation = model.HttpSkipTlsCertificateValidation,
+                Port = model.HttpPort,
+                DisablePublicProbe = model.HttpDisablePublicProbe
             };
         }
     }

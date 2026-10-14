@@ -24,7 +24,9 @@ public sealed class CertificateRenewalReplayTests
             HttpAdditionalHeaderName = "X-Example",
             HttpAdditionalHeaderValue = "example-value",
             HttpBearerToken = "not-a-secret",
-            HttpSkipTlsCertificateValidation = true
+            HttpSkipTlsCertificateValidation = true,
+            HttpPort = 2222,
+            HttpDisablePublicProbe = true
         };
 
         var created = CertificateRenewalReplay.TryCreate(model, out var request, out var missing);
@@ -52,6 +54,8 @@ public sealed class CertificateRenewalReplayTests
         Assert.Equal("example-value", http.AdditionalHeaderValue);
         Assert.Equal("not-a-secret", http.BearerToken);
         Assert.True(http.SkipTlsCertificateValidation);
+        Assert.Equal(2222, http.Port);
+        Assert.True(http.DisablePublicProbe);
     }
 
     [Fact]
@@ -126,6 +130,8 @@ public sealed class CertificateRenewalReplayTests
         Assert.Null(model.CreatePfxFile);
         Assert.Equal(string.Empty, model.DnsPluginId);
         Assert.Equal(string.Empty, model.HttpDeploymentMethod);
+        Assert.Null(model.HttpPort);
+        Assert.False(model.HttpDisablePublicProbe);
 
         var created = CertificateRenewalReplay.TryCreate(model, out var request, out var missing);
 

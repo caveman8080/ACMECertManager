@@ -52,6 +52,8 @@ namespace ACMECertManager
         public string AdditionalHeaderValue { get; init; } = string.Empty;
         public string BearerToken { get; init; } = string.Empty;
         public bool SkipTlsCertificateValidation { get; init; }
+        public int? Port { get; init; }
+        public bool DisablePublicProbe { get; init; }
     }
 
     public sealed class DnsPluginExecution
@@ -155,7 +157,7 @@ namespace ACMECertManager
             RuntimePaths.EnsureRequiredDirectories();
 
             log?.Invoke($"[ACME] Starting certificate issuance for domains: {string.Join(", ", domains)}");
-            log?.Invoke($"[ACME] ACME Server: {(acmeUrl.Contains("staging") ? "STAGING (safe)" : "PRODUCTION (real)")}");
+            log?.Invoke($"[ACME] ACME Server: {DescribeAcmeDirectory(acmeUrl)}");
             log?.Invoke($"[ACME] Validation Method: {validationMethod}");
             if (validationMethod == ChallengeValidationMethod.Http01)
             {
@@ -182,7 +184,7 @@ namespace ACMECertManager
 
                 // ACMEv2 servers may require explicit ToS agreement on newAccount.
                 // With an existing key this call safely returns the existing account if it already exists.
-                await acme.NewAccount(email, true);
+                await RetryBadNonceAsync(() => acme.NewAccount(email, true), log, "verify ACME account");
                 log?.Invoke("[ACME] Account key loaded and verified with ACME server");
             }
             else
@@ -211,13 +213,13 @@ namespace ACMECertManager
 
                     var accountKey = KeyFactory.FromPem(legacyPem);
                     acme = new AcmeContext(new Uri(acmeUrl), accountKey);
-                    await acme.NewAccount(email, true);
+                    await RetryBadNonceAsync(() => acme.NewAccount(email, true), log, "verify ACME account");
                 }
                 else
                 {
-                    log?.Invoke($"[ACME] Creating new ACME account for {(isStaging ? "STAGING" : "PRODUCTION")}...");
+                    log?.Invoke($"[ACME] Creating new ACME account for {DescribeAcmeDirectory(acmeUrl)}...");
                     acme = new AcmeContext(new Uri(acmeUrl));
-                    await acme.NewAccount(email, true);
+                    await RetryBadNonceAsync(() => acme.NewAccount(email, true), log, "verify ACME account");
                     File.WriteAllText(accountFilePath, acme.AccountKey.ToPem());
                     log?.Invoke($"[ACME] New account created and persisted to {Path.GetFileName(accountFilePath)}");
                 }
@@ -227,7 +229,7 @@ namespace ACMECertManager
             IOrderContext order;
             try
             {
-                order = await acme.NewOrder(domains);
+                order = await RetryBadNonceAsync(() => acme.NewOrder(domains), log, "create ACME order");
             }
             catch (AcmeException ex)
             {
@@ -249,100 +251,15 @@ namespace ACMECertManager
 
             log?.Invoke($"[ACME] Order contains {authorizations.Count} authorization(s)");
 
-            var authorizationIndex = 0;
-            foreach (var authz in authorizations)
-            {
-                authorizationIndex++;
-                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {authorizations.Count}");
-
-                if (validationMethod == ChallengeValidationMethod.Http01)
-                {
-                    var challenge = await authz.Http();
-                    var httpIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                    await HandleHttpAuthorizationAsync(challenge, authz, httpIdentifier, httpDeployment, log);
-                    continue;
-                }
-
-                if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
-                {
-                    var challenge = await authz.TlsAlpn();
-                    var tlsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                    if (challenge is null)
-                    {
-                        throw new InvalidOperationException(
-                            $"TLS-ALPN-01 challenge is not available for '{tlsIdentifier}' from this ACME server.");
-                    }
-
-                    await HandleTlsAuthorizationAsync(challenge, authz, tlsIdentifier, log);
-                    continue;
-                }
-
-                if (dnsPlugin is null)
-                {
-                    throw new InvalidOperationException("DNS-01 selected but no DNS plugin configuration was provided.");
-                }
-
-                log?.Invoke("[DNS-01] Starting DNS challenge validation...");
-                var dnsChallenge = await authz.Dns();
-                var dnsIdentifier = (await authz.Resource()).Identifier?.Value ?? domains[0];
-                var dnsRequest = new DnsChallengeRequest
-                {
-                    Domain = dnsIdentifier,
-                    RecordName = GetDns01TxtRecordName(dnsIdentifier),
-                    Token = dnsChallenge.Token,
-                    KeyAuthorization = dnsChallenge.KeyAuthz,
-                    TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
-                };
-
-                log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
-                log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {dnsIdentifier}");
-                await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
-                log?.Invoke("[DNS-01] DNS record presented");
-
-                var propagationDelay = GetDnsPropagationDelay(dnsPlugin.Credentials);
-                if (propagationDelay > TimeSpan.Zero)
-                {
-                    log?.Invoke($"[DNS-01] Waiting {propagationDelay.TotalSeconds:0} seconds for DNS propagation...");
-                    await Task.Delay(propagationDelay);
-                }
-
-                try
-                {
-                    log?.Invoke("[DNS-01] Sending challenge validation request to ACME server...");
-                    await dnsChallenge.Validate();
-                    log?.Invoke("[DNS-01] Waiting for ACME server to verify challenge...");
-                    await WaitForAuthorizationValidAsync(authz);
-                    log?.Invoke("[DNS-01] DNS challenge validated successfully");
-                }
-                finally
-                {
-                    try
-                    {
-                        log?.Invoke("[DNS-01] Cleaning up DNS record...");
-                        await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
-                        log?.Invoke("[DNS-01] DNS cleanup completed");
-                    }
-                    catch (HttpRequestException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (IOException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                    catch (System.Security.SecurityException ex)
-                    {
-                        log?.Invoke($"[DNS-01] Cleanup warning: {ex.Message}");
-                    }
-                }
-            }
-
-            log?.Invoke("[ACME] All authorizations validated, waiting for order to be ready...");
-            await WaitForOrderReadyAsync(order);
+            var fallbackIdentifier = domains.Length > 0 ? domains[0] : string.Empty;
+            await ValidateOrderAuthorizationsAsync(
+                authorizations,
+                order,
+                fallbackIdentifier,
+                validationMethod,
+                httpDeployment,
+                dnsPlugin,
+                log);
             log?.Invoke("[ACME] Order is ready for finalization");
 
             // Generate cert
@@ -355,14 +272,17 @@ namespace ACMECertManager
                 log?.Invoke("[CERT] Creating certificate signing request and finalizing order...");
                 // Certes Generate finalizes then downloads. Default retryCount is only 1 while the
                 // order is Processing; Let's Encrypt commonly needs longer before the cert is ready.
-                cert = await order.Generate(
-                    new CsrInfo
-                    {
-                        CommonName = domains[0]
-                    },
-                    privateKey,
-                    preferredChain: null,
-                    retryCount: CertificateGenerateRetryCount);
+                cert = await RetryBadNonceAsync(
+                    () => order.Generate(
+                        new CsrInfo
+                        {
+                            CommonName = domains[0]
+                        },
+                        privateKey,
+                        preferredChain: null,
+                        retryCount: CertificateGenerateRetryCount),
+                    log,
+                    "finalize ACME order");
                 log?.Invoke("[CERT] Certificate generated successfully from ACME server");
             }
             catch (AcmeException ex)
@@ -509,6 +429,8 @@ namespace ACMECertManager
             model.HttpAdditionalHeaderValue = httpDeployment.AdditionalHeaderValue ?? string.Empty;
             model.HttpBearerToken = httpDeployment.BearerToken ?? string.Empty;
             model.HttpSkipTlsCertificateValidation = httpDeployment.SkipTlsCertificateValidation;
+            model.HttpPort = httpDeployment.Port;
+            model.HttpDisablePublicProbe = httpDeployment.DisablePublicProbe;
         }
 
         internal static string FormatValidationMethod(ChallengeValidationMethod validationMethod)
@@ -562,6 +484,236 @@ namespace ACMECertManager
             }
         }
 
+        /// <summary>
+        /// Validates each order authorization, then waits until the order is ready.
+        /// A valid authorization is reused and skipped. This still reaches the order-ready wait
+        /// when every authorization was already valid.
+        /// </summary>
+        internal static async Task ValidateOrderAuthorizationsAsync(
+            IReadOnlyList<IAuthorizationContext> authorizations,
+            IOrderContext order,
+            string fallbackIdentifier,
+            ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
+            DnsPluginExecution? dnsPlugin,
+            Action<string>? log)
+        {
+            var authorizationIndex = 0;
+            foreach (var authz in authorizations)
+            {
+                authorizationIndex++;
+                log?.Invoke($"[ACME] Processing authorization {authorizationIndex} of {authorizations.Count}");
+                await ValidateOneAuthorizationAsync(
+                    authz,
+                    fallbackIdentifier,
+                    validationMethod,
+                    httpDeployment,
+                    dnsPlugin,
+                    log);
+            }
+
+            log?.Invoke("[ACME] All authorizations validated, waiting for order to be ready...");
+            await WaitForOrderReadyAsync(order);
+        }
+
+        private static async Task ValidateOneAuthorizationAsync(
+            IAuthorizationContext authz,
+            string fallbackIdentifier,
+            ChallengeValidationMethod validationMethod,
+            HttpChallengeDeploymentOptions? httpDeployment,
+            DnsPluginExecution? dnsPlugin,
+            Action<string>? log)
+        {
+            // Read the authorization before selecting a challenge. Let's Encrypt reuses a valid
+            // authorization for about 30 days and lists only the challenge type that was used,
+            // so authz.Http()/TlsAlpn()/Dns() is null for the other methods.
+            var resource = await authz.Resource();
+            var identifier = AuthorizationIdentifierOrFallback(resource, fallbackIdentifier);
+            var displayIdentifier = FormatAuthorizationIdentifier(resource, identifier);
+
+            if (resource.Status == AuthorizationStatus.Valid)
+            {
+                log?.Invoke($"[ACME] Authorization for {displayIdentifier} is already valid (reused), skipping challenge");
+                return;
+            }
+
+            if (validationMethod == ChallengeValidationMethod.Http01)
+            {
+                IChallengeContext? challenge = await authz.Http();
+                if (challenge is null)
+                {
+                    throw await CreateMissingChallengeExceptionAsync(
+                        authz,
+                        resource,
+                        displayIdentifier,
+                        FormatValidationMethod(ChallengeValidationMethod.Http01));
+                }
+
+                await HandleHttpAuthorizationAsync(challenge, authz, identifier, httpDeployment, log);
+                return;
+            }
+
+            if (validationMethod == ChallengeValidationMethod.TlsAlpn01)
+            {
+                IChallengeContext? challenge = await authz.TlsAlpn();
+                if (challenge is null)
+                {
+                    throw await CreateMissingChallengeExceptionAsync(
+                        authz,
+                        resource,
+                        displayIdentifier,
+                        FormatValidationMethod(ChallengeValidationMethod.TlsAlpn01));
+                }
+
+                await HandleTlsAuthorizationAsync(challenge, authz, identifier, log);
+                return;
+            }
+
+            if (dnsPlugin is null)
+            {
+                throw new InvalidOperationException("DNS-01 selected but no DNS plugin configuration was provided.");
+            }
+
+            IChallengeContext? dnsChallenge = await authz.Dns();
+            if (dnsChallenge is null)
+            {
+                throw await CreateMissingChallengeExceptionAsync(
+                    authz,
+                    resource,
+                    displayIdentifier,
+                    FormatValidationMethod(ChallengeValidationMethod.Dns01));
+            }
+
+            await HandleDnsAuthorizationAsync(dnsChallenge, authz, identifier, displayIdentifier, dnsPlugin, log);
+        }
+
+        private static string AuthorizationIdentifierOrFallback(Certes.Acme.Resource.Authorization authorization, string fallbackIdentifier)
+        {
+            var value = authorization.Identifier?.Value;
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackIdentifier))
+            {
+                return fallbackIdentifier;
+            }
+
+            return "unknown";
+        }
+
+        /// <summary>
+        /// Wildcard authorizations identify the base domain and set <see cref="Certes.Acme.Resource.Authorization.Wildcard"/>.
+        /// Logs and errors show the wildcard name, for example *.example.com.
+        /// </summary>
+        private static string FormatAuthorizationIdentifier(Certes.Acme.Resource.Authorization authorization, string identifier)
+        {
+            if (authorization.Wildcard == true &&
+                !identifier.StartsWith("*.", StringComparison.Ordinal))
+            {
+                return "*." + identifier;
+            }
+
+            return identifier;
+        }
+
+        private static async Task<InvalidOperationException> CreateMissingChallengeExceptionAsync(
+            IAuthorizationContext authz,
+            Certes.Acme.Resource.Authorization resource,
+            string displayIdentifier,
+            string requestedMethod)
+        {
+            var offered = await DescribeOfferedChallengeTypesAsync(authz, resource);
+            return new InvalidOperationException(
+                $"{requestedMethod} challenge is not available for '{displayIdentifier}'. Offered challenge types: {offered}.");
+        }
+
+        private static async Task<string> DescribeOfferedChallengeTypesAsync(
+            IAuthorizationContext authz,
+            Certes.Acme.Resource.Authorization resource)
+        {
+            var types = ReadChallengeTypes(resource.Challenges?.Select(challenge => challenge.Type));
+            if (types.Count == 0)
+            {
+                var contexts = await authz.Challenges();
+                types = ReadChallengeTypes(contexts.Select(challenge => challenge.Type));
+            }
+
+            return types.Count == 0 ? "none" : string.Join(", ", types);
+        }
+
+        private static List<string> ReadChallengeTypes(IEnumerable<string?>? types)
+        {
+            var result = new List<string>();
+            if (types is null)
+            {
+                return result;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var type in types)
+            {
+                if (string.IsNullOrWhiteSpace(type) || !seen.Add(type))
+                {
+                    continue;
+                }
+
+                result.Add(type);
+            }
+
+            return result;
+        }
+
+        private static async Task HandleDnsAuthorizationAsync(
+            IChallengeContext dnsChallenge,
+            IAuthorizationContext authz,
+            string identifier,
+            string displayIdentifier,
+            DnsPluginExecution dnsPlugin,
+            Action<string>? log)
+        {
+            log?.Invoke("[DNS-01] Starting DNS challenge validation...");
+            var dnsRequest = new DnsChallengeRequest
+            {
+                Domain = identifier,
+                RecordName = GetDns01TxtRecordName(identifier),
+                Token = dnsChallenge.Token,
+                KeyAuthorization = dnsChallenge.KeyAuthz,
+                TxtValue = ComputeDnsTxtValue(dnsChallenge.KeyAuthz)
+            };
+
+            log?.Invoke($"[DNS-01] DNS record to create: {dnsRequest.RecordName}");
+            log?.Invoke($"[DNS-01] Presenting DNS challenge using plugin '{dnsPlugin.Plugin.Metadata.DisplayName}' for {displayIdentifier}");
+            await dnsPlugin.Plugin.Instance.PresentChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
+            log?.Invoke("[DNS-01] DNS record presented");
+
+            var propagationDelay = GetDnsPropagationDelay(dnsPlugin.Credentials);
+            if (propagationDelay > TimeSpan.Zero)
+            {
+                log?.Invoke($"[DNS-01] Waiting {propagationDelay.TotalSeconds:0} seconds for DNS propagation...");
+                await Task.Delay(propagationDelay);
+            }
+
+            try
+            {
+                log?.Invoke("[DNS-01] Sending challenge validation request to ACME server...");
+                await RetryBadNonceAsync(() => dnsChallenge.Validate(), log, "submit DNS-01 challenge");
+                log?.Invoke("[DNS-01] Waiting for ACME server to verify challenge...");
+                await WaitForAuthorizationValidAsync(authz);
+                log?.Invoke("[DNS-01] DNS challenge validated successfully");
+            }
+            finally
+            {
+                await HttpDeploymentSupport.RunBestEffortCleanupAsync(async () =>
+                {
+                    log?.Invoke("[DNS-01] Cleaning up DNS record...");
+                    await dnsPlugin.Plugin.Instance.CleanupChallengeAsync(dnsRequest, dnsPlugin.Credentials, CancellationToken.None);
+                    log?.Invoke("[DNS-01] DNS cleanup completed");
+                }, log, "[DNS-01]");
+            }
+        }
+
         private static async Task HandleTlsAuthorizationAsync(
             IChallengeContext challenge,
             IAuthorizationContext authz,
@@ -579,7 +731,7 @@ namespace ACMECertManager
             server.Start();
 
             log?.Invoke("[TLS-ALPN-01] TLS challenge server started, sending challenge validation request...");
-            await challenge.Validate();
+            await RetryBadNonceAsync(() => challenge.Validate(), log, "submit TLS-ALPN-01 challenge");
             log?.Invoke("[TLS-ALPN-01] Waiting for ACME server to verify challenge...");
             await WaitForAuthorizationValidAsync(authz);
             log?.Invoke("[TLS-ALPN-01] Challenge validated successfully, stopping server...");
@@ -631,7 +783,7 @@ namespace ACMECertManager
                 using var server = new HttpChallengeServer(challenge.Token, challenge.KeyAuthz);
                 server.Start();
                 log?.Invoke("[HTTP-01] HTTP server started, sending challenge validation request...");
-                await challenge.Validate();
+                await RetryBadNonceAsync(() => challenge.Validate(), log, "submit HTTP-01 challenge");
                 log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
                 await WaitForAuthorizationValidAsync(authz);
                 log?.Invoke("[HTTP-01] Challenge validated successfully, stopping server...");
@@ -645,33 +797,17 @@ namespace ACMECertManager
             {
                 await ProbeHttpChallengeAsync(identifier, challenge.Token, challenge.KeyAuthz, effectiveOptions, log);
                 log?.Invoke("[HTTP-01] Sending challenge validation request...");
-                await challenge.Validate();
+                await RetryBadNonceAsync(() => challenge.Validate(), log, "submit HTTP-01 challenge");
                 log?.Invoke("[HTTP-01] Waiting for ACME server to verify challenge...");
                 await WaitForAuthorizationValidAsync(authz);
                 log?.Invoke("[HTTP-01] Challenge validated successfully");
             }
             finally
             {
-                try
-                {
-                    await CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log);
-                }
-                catch (HttpRequestException ex)
-                {
-                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
-                }
-                catch (IOException ex)
-                {
-                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
-                }
-                catch (System.Security.SecurityException ex)
-                {
-                    log?.Invoke($"[HTTP-01] Cleanup warning: {ex.Message}");
-                }
+                await HttpDeploymentSupport.RunBestEffortCleanupAsync(
+                    () => CleanupHttpChallengeAsync(challenge.Token, challenge.KeyAuthz, identifier, effectiveOptions, deploymentKey, log),
+                    log,
+                    "[HTTP-01]");
             }
         }
 
@@ -685,73 +821,90 @@ namespace ACMECertManager
             switch (options.Method)
             {
                 case HttpChallengeDeploymentMethod.NetworkPath:
-                    EnsureRequiredTarget(options.Target, "network path");
-                    System.IO.Directory.CreateDirectory(options.Target);
-                    var path = Path.Join(options.Target, token);
+                    var networkTarget = PrepareHttpTarget(options, "network path");
+                    System.IO.Directory.CreateDirectory(networkTarget);
+                    var path = Path.Join(networkTarget, token);
                     await File.WriteAllTextAsync(path, keyAuthorization + Environment.NewLine);
-                    log?.Invoke($"[HTTP-01] Challenge file written to network/local path: {path}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Challenge file written to network/local path: {path}"));
                     return path;
 
                 case HttpChallengeDeploymentMethod.Ftp:
-                    EnsureRequiredTarget(options.Target, "FTP target URL");
-                    var ftpUri = EnsureUri(options.Target, "ftp");
+                    var ftpTarget = PrepareHttpTarget(options, "FTP target URL");
+                    var ftpUri = EnsureUri(ftpTarget, "ftp");
+                    var ftpPort = HttpDeploymentSupport.ResolvePort(options.Method, ftpUri, options.Port);
                     var ftpUsername = ResolveUsername(options, ftpUri, "anonymous");
                     var ftpPassword = ResolvePassword(options, ftpUri);
-                    var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : ftpUri.AbsolutePath;
-                    var ftpUrl = CombineUrl(options.Target, token);
+                    var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : Uri.UnescapeDataString(ftpUri.AbsolutePath);
                     var ftpRemotePath = CombineSftpPath(ftpDirectory, token);
                     var ftpPayload = Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)} ({ftpTarget})"));
 
-                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
+                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpPort))
                     {
                         await ftpClient.Connect();
                         await ftpClient.UploadBytes(ftpPayload, ftpRemotePath, createRemoteDir: true, token: CancellationToken.None);
                         await ftpClient.Disconnect();
                     }
 
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over FTP: {ftpUrl}");
-                    return ftpUrl;
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over FTP: {ftpRemotePath}"));
+                    return ftpRemotePath;
 
                 case HttpChallengeDeploymentMethod.Sftp:
-                    EnsureRequiredTarget(options.Target, "SFTP target URL");
                     EnsureRequiredCredentials(options, "SFTP");
-                    var sftpUri = EnsureUri(options.Target, "sftp");
-                    var remoteDirectory = string.IsNullOrWhiteSpace(sftpUri.AbsolutePath) ? "/" : sftpUri.AbsolutePath;
+                    var sftpTarget = PrepareHttpTarget(options, "SFTP target URL");
+                    var sftpUri = EnsureUri(sftpTarget, "sftp");
+                    var sftpPort = HttpDeploymentSupport.ResolvePort(options.Method, sftpUri, options.Port);
+                    var remoteDirectory = string.IsNullOrWhiteSpace(sftpUri.AbsolutePath) ? "/" : Uri.UnescapeDataString(sftpUri.AbsolutePath);
                     var remoteFilePath = CombineSftpPath(remoteDirectory, token);
+                    var sftpPayload = Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)} ({sftpTarget})"));
 
                     await Task.Run(() =>
                     {
-                        using var client = new SftpClient(sftpUri.Host, sftpUri.Port > 0 ? sftpUri.Port : 22, options.Username, options.Password);
+                        using var client = new SftpClient(sftpUri.Host, sftpPort, options.Username, options.Password);
                         client.Connect();
-                        EnsureSftpDirectoryExists(client, remoteDirectory);
-                        using var payload = new MemoryStream(Encoding.UTF8.GetBytes(keyAuthorization + Environment.NewLine));
-                        client.UploadFile(payload, remoteFilePath, true);
-                        client.Disconnect();
+                        try
+                        {
+                            HttpDeploymentSupport.UploadSftpChallenge(
+                                new SshNetSftpSession(client),
+                                remoteDirectory,
+                                remoteFilePath,
+                                sftpPayload,
+                                log);
+                        }
+                        finally
+                        {
+                            client.Disconnect();
+                        }
                     });
 
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over SFTP: {remoteFilePath}"));
                     return remoteFilePath;
 
                 case HttpChallengeDeploymentMethod.WebDav:
-                    EnsureRequiredTarget(options.Target, "WebDav target URL");
-                    var webDavUrl = CombineUrl(options.Target, token);
-                    {
-                        var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
-                        using var content = new StringContent(keyAuthorization + Environment.NewLine, Encoding.UTF8, "text/plain");
-                        using var request = new HttpRequestMessage(HttpMethod.Put, webDavUrl) { Content = content };
-                        ApplyHttpAuthentication(request, options);
-                        using var response = await client.SendAsync(request);
-                        response.EnsureSuccessStatusCode();
-                    }
-
-                    log?.Invoke($"[HTTP-01] Uploaded challenge file over WebDav: {webDavUrl}");
+                    var webDavDirectory = PrepareHttpTarget(options, "WebDav target URL");
+                    var webDavUri = EnsureHttpUri(webDavDirectory, "WebDAV");
+                    var webDavPort = HttpDeploymentSupport.ResolvePort(options.Method, webDavUri, options.Port);
+                    var webDavUrl = CombineUrl(webDavDirectory, token);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavUri.Host, webDavPort)} ({webDavDirectory})"));
+                    await EnsureWebDavDirectoriesAsync(webDavDirectory, options, log);
+                    await SendWebDavFileAsync(HttpMethod.Put, webDavUrl, options, keyAuthorization + Environment.NewLine, log);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Uploaded challenge file over WebDav: {webDavUrl}"));
                     return webDavUrl;
 
                 case HttpChallengeDeploymentMethod.Rest:
                     EnsureRequiredTarget(options.Target, "REST endpoint URL");
-                    await SendRestChallengeRequestAsync(options, "present", token, keyAuthorization, identifier);
-                    log?.Invoke($"[HTTP-01] Presented challenge via REST endpoint: {options.Target}");
-                    return options.Target;
+                    var restTarget = HttpDeploymentSupport.WithExplicitPort(options.Target.Trim(), options.Port);
+                    var restUri = EnsureHttpUri(restTarget, "REST");
+                    var restPort = HttpDeploymentSupport.ResolvePort(options.Method, restUri, options.Port);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restUri.Host, restPort)} ({restTarget})"));
+                    await SendRestChallengeRequestAsync(options, restTarget, "present", token, keyAuthorization, identifier);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Presented challenge via REST endpoint: {restTarget}"));
+                    return restTarget;
 
                 default:
                     throw new InvalidOperationException($"Unsupported HTTP deployment method '{options.Method}'.");
@@ -778,19 +931,20 @@ namespace ACMECertManager
                     break;
 
                 case HttpChallengeDeploymentMethod.Ftp:
-                    EnsureRequiredTarget(options.Target, "FTP target URL");
-                    var ftpUri = EnsureUri(options.Target, "ftp");
+                    var ftpCleanupTarget = PrepareHttpTarget(options, "FTP target URL");
+                    var ftpUri = EnsureUri(ftpCleanupTarget, "ftp");
+                    var ftpPort = HttpDeploymentSupport.ResolvePort(options.Method, ftpUri, options.Port);
                     var ftpUsername = ResolveUsername(options, ftpUri, "anonymous");
                     var ftpPassword = ResolvePassword(options, ftpUri);
-                    var ftpDirectory = string.IsNullOrWhiteSpace(ftpUri.AbsolutePath) ? "/" : ftpUri.AbsolutePath;
-                    var ftpRemotePath = CombineSftpPath(ftpDirectory, token);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to FTP {HttpDeploymentSupport.FormatHostPort(ftpUri.Host, ftpPort)} ({ftpCleanupTarget})"));
 
-                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpUri.Port > 0 ? ftpUri.Port : 21))
+                    await using (var ftpClient = new AsyncFtpClient(ftpUri.Host, ftpUsername, ftpPassword, ftpPort))
                     {
                         await ftpClient.Connect();
-                        if (await ftpClient.FileExists(ftpRemotePath, CancellationToken.None))
+                        if (await ftpClient.FileExists(deploymentKey, CancellationToken.None))
                         {
-                            await ftpClient.DeleteFile(ftpRemotePath, CancellationToken.None);
+                            await ftpClient.DeleteFile(deploymentKey, CancellationToken.None);
                         }
 
                         await ftpClient.Disconnect();
@@ -800,12 +954,15 @@ namespace ACMECertManager
                     break;
 
                 case HttpChallengeDeploymentMethod.Sftp:
-                    EnsureRequiredTarget(options.Target, "SFTP target URL");
                     EnsureRequiredCredentials(options, "SFTP");
-                    var sftpUri = EnsureUri(options.Target, "sftp");
+                    var sftpCleanupTarget = PrepareHttpTarget(options, "SFTP target URL");
+                    var sftpUri = EnsureUri(sftpCleanupTarget, "sftp");
+                    var sftpPort = HttpDeploymentSupport.ResolvePort(options.Method, sftpUri, options.Port);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to SFTP {HttpDeploymentSupport.FormatHostPort(sftpUri.Host, sftpPort)} ({sftpCleanupTarget})"));
                     await Task.Run(() =>
                     {
-                        using var client = new SftpClient(sftpUri.Host, sftpUri.Port > 0 ? sftpUri.Port : 22, options.Username, options.Password);
+                        using var client = new SftpClient(sftpUri.Host, sftpPort, options.Username, options.Password);
                         client.Connect();
                         if (client.Exists(deploymentKey))
                         {
@@ -820,6 +977,13 @@ namespace ACMECertManager
 
                 case HttpChallengeDeploymentMethod.WebDav:
                     {
+                        if (Uri.TryCreate(deploymentKey, UriKind.Absolute, out var webDavCleanupUri))
+                        {
+                            var webDavCleanupPort = HttpDeploymentSupport.ResolvePort(options.Method, webDavCleanupUri, options.Port);
+                            log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                                $"[HTTP-01] Connecting to WebDAV {HttpDeploymentSupport.FormatHostPort(webDavCleanupUri.Host, webDavCleanupPort)} ({deploymentKey})"));
+                        }
+
                         var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
                         using var request = new HttpRequestMessage(HttpMethod.Delete, deploymentKey);
                         ApplyHttpAuthentication(request, options);
@@ -834,7 +998,12 @@ namespace ACMECertManager
                     break;
 
                 case HttpChallengeDeploymentMethod.Rest:
-                    await SendRestChallengeRequestAsync(options, "cleanup", token, keyAuthorization, identifier);
+                    var restCleanupTarget = HttpDeploymentSupport.WithExplicitPort(options.Target.Trim(), options.Port);
+                    var restCleanupUri = EnsureHttpUri(restCleanupTarget, "REST");
+                    var restCleanupPort = HttpDeploymentSupport.ResolvePort(options.Method, restCleanupUri, options.Port);
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Connecting to REST {HttpDeploymentSupport.FormatHostPort(restCleanupUri.Host, restCleanupPort)} ({restCleanupTarget})"));
+                    await SendRestChallengeRequestAsync(options, restCleanupTarget, "cleanup", token, keyAuthorization, identifier);
                     log?.Invoke("[HTTP-01] Cleanup request sent to REST endpoint");
                     break;
             }
@@ -847,8 +1016,13 @@ namespace ACMECertManager
             HttpChallengeDeploymentOptions options,
             Action<string>? log)
         {
-            if (string.IsNullOrWhiteSpace(options.PublicValidationUrlTemplate))
+            if (!HttpDeploymentSupport.ShouldProbe(options))
             {
+                if (options.DisablePublicProbe)
+                {
+                    log?.Invoke("[HTTP-01] Public probe is disabled for this certificate.");
+                }
+
                 return;
             }
 
@@ -856,43 +1030,45 @@ namespace ACMECertManager
 
             try
             {
-                var client = AcmeHttpClientFactory.GetClient(skipTlsValidation: false);
+                var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
                 using var response = await client.GetAsync(probeUrl);
                 var content = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode &&
                     string.Equals(content.Trim(), keyAuthorization.Trim(), StringComparison.Ordinal))
                 {
-                    log?.Invoke($"[HTTP-01] Probe succeeded at {probeUrl}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe succeeded at {probeUrl}"));
                 }
                 else
                 {
-                    log?.Invoke($"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}");
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog(
+                        $"[HTTP-01] Probe warning at {probeUrl}: status {(int)response.StatusCode}"));
                 }
             }
             catch (HttpRequestException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (TaskCanceledException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (IOException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
             catch (System.Security.SecurityException ex)
             {
-                log?.Invoke($"[HTTP-01] Probe warning: {ex.Message}");
+                log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] Probe warning: {ex.Message}"));
             }
         }
 
         private static async Task SendRestChallengeRequestAsync(
             HttpChallengeDeploymentOptions options,
+            string targetUrl,
             string action,
             string token,
             string keyAuthorization,
@@ -901,7 +1077,7 @@ namespace ACMECertManager
             var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
 
             var method = string.IsNullOrWhiteSpace(options.RestMethod) ? "POST" : options.RestMethod;
-            using var request = new HttpRequestMessage(new HttpMethod(method), options.Target)
+            using var request = new HttpRequestMessage(new HttpMethod(method), targetUrl)
             {
                 Content = new StringContent(BuildRestPayloadJson(action, identifier, token, keyAuthorization), Encoding.UTF8, "application/json")
             };
@@ -957,6 +1133,125 @@ namespace ACMECertManager
             return acmeUrl.Contains("staging", StringComparison.OrdinalIgnoreCase);
         }
 
+        internal static bool IsLetsEncryptProductionDirectory(string acmeUrl)
+        {
+            return Uri.TryCreate(acmeUrl, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && uri.Host.Equals("acme-v02.api.letsencrypt.org", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static string DescribeAcmeDirectory(string acmeUrl)
+        {
+            if (IsLetsEncryptProductionDirectory(acmeUrl))
+            {
+                return "PRODUCTION (real)";
+            }
+
+            if (IsStagingDirectoryUrl(acmeUrl))
+            {
+                return "STAGING (safe)";
+            }
+
+            if (Uri.TryCreate(acmeUrl, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+            {
+                return $"CUSTOM ({uri.Host})";
+            }
+
+            return "CUSTOM (unknown host)";
+        }
+
+        internal const int BadNonceRetryLimit = 4;
+
+        internal static Task RetryBadNonceAsync(
+            Func<Task> action,
+            Action<string>? log,
+            string operation,
+            int maxAttempts = BadNonceRetryLimit,
+            TimeSpan? retryDelay = null)
+        {
+            return RetryBadNonceAsync(async () =>
+            {
+                await action().ConfigureAwait(false);
+                return true;
+            }, log, operation, maxAttempts, retryDelay);
+        }
+
+        internal static async Task<T> RetryBadNonceAsync<T>(
+            Func<Task<T>> action,
+            Action<string>? log,
+            string operation,
+            int maxAttempts = BadNonceRetryLimit,
+            TimeSpan? retryDelay = null)
+        {
+            if (maxAttempts < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxAttempts));
+            }
+
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return await action().ConfigureAwait(false);
+                }
+                catch (AcmeRequestException ex) when (attempt < maxAttempts && IsBadNonce(ex))
+                {
+                    var delay = retryDelay ?? TimeSpan.FromSeconds(Math.Min(attempt, 3));
+                    log?.Invoke(
+                        $"[ACME] badNonce during {operation} (attempt {attempt}/{maxAttempts}). Retrying in {delay.TotalSeconds:0}s.");
+                    if (delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(delay).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        internal static bool IsBadNonce(AcmeException ex)
+        {
+            if (ex is AcmeRequestException request &&
+                (request.Error?.Type?.Contains("badNonce", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                return true;
+            }
+
+            return ex.Message.Contains("badNonce", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static HttpChallengeDeploymentOptions CreateHttpDeploymentOptions(
+            HttpChallengeDeploymentMethod method,
+            string? target,
+            string? username,
+            string? password,
+            string? publicProbeTemplate,
+            string? restMethod,
+            string? additionalHeaderName,
+            string? additionalHeaderValue,
+            string? bearerToken,
+            bool skipTlsCertificateValidation,
+            int? port,
+            bool disablePublicProbe)
+        {
+            var trimmedTarget = target?.Trim() ?? string.Empty;
+            return new HttpChallengeDeploymentOptions
+            {
+                Method = method,
+                Target = HttpDeploymentSupport.NormalizeChallengeTarget(method, trimmedTarget),
+                Username = username?.Trim() ?? string.Empty,
+                Password = password ?? string.Empty,
+                PublicValidationUrlTemplate = string.IsNullOrWhiteSpace(publicProbeTemplate)
+                    ? "http://{domain}/.well-known/acme-challenge/{token}"
+                    : publicProbeTemplate.Trim(),
+                RestMethod = string.IsNullOrWhiteSpace(restMethod) ? "POST" : restMethod.Trim(),
+                AdditionalHeaderName = additionalHeaderName?.Trim() ?? string.Empty,
+                AdditionalHeaderValue = additionalHeaderValue?.Trim() ?? string.Empty,
+                BearerToken = bearerToken ?? string.Empty,
+                SkipTlsCertificateValidation = skipTlsCertificateValidation,
+                Port = port is >= 1 and <= 65535 ? port : null,
+                DisablePublicProbe = disablePublicProbe
+            };
+        }
+
         internal static string BuildProbeUrl(string template, string domain, string token)
         {
             return template
@@ -992,7 +1287,8 @@ namespace ACMECertManager
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 !string.Equals(uri.Scheme, expectedScheme, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException($"Expected a valid {expectedScheme.ToUpperInvariant()} URL, but got '{url}'.");
+                throw new InvalidOperationException(
+                    $"Expected a valid {expectedScheme.ToUpperInvariant()} URL, but got '{HttpDeploymentSupport.RedactUrlForLog(url)}'.");
             }
 
             return uri;
@@ -1048,23 +1344,94 @@ namespace ACMECertManager
             return string.Empty;
         }
 
-        private static void EnsureSftpDirectoryExists(SftpClient client, string fullPath)
+        private static string PrepareHttpTarget(HttpChallengeDeploymentOptions options, string targetDescription)
         {
-            if (string.IsNullOrWhiteSpace(fullPath) || fullPath == "/")
+            EnsureRequiredTarget(options.Target, targetDescription);
+            var normalized = HttpDeploymentSupport.NormalizeChallengeTarget(options.Method, options.Target);
+            return HttpDeploymentSupport.WithExplicitPort(normalized, options.Port);
+        }
+
+        private static Uri EnsureHttpUri(string url, string protocol)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
-                return;
+                throw new InvalidOperationException(
+                    $"{protocol} target must be an absolute http or https URL, but got '{HttpDeploymentSupport.RedactUrlForLog(url)}'.");
             }
 
-            var segments = fullPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            var current = "/";
-            foreach (var segment in segments)
+            return uri;
+        }
+
+        private static async Task EnsureWebDavDirectoriesAsync(
+            string directoryUrl,
+            HttpChallengeDeploymentOptions options,
+            Action<string>? log)
+        {
+            foreach (var collectionUrl in HttpDeploymentSupport.ListWebDavCollectionUrls(directoryUrl))
             {
-                current = CombineSftpPath(current, segment);
-                if (!client.Exists(current))
+                using var request = new HttpRequestMessage(new HttpMethod("MKCOL"), collectionUrl);
+                ApplyHttpAuthentication(request, options);
+                var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
+                using var response = await client.SendAsync(request);
+                if ((int)response.StatusCode == 409)
                 {
-                    client.CreateDirectory(current);
+                    throw new InvalidOperationException(HttpDeploymentSupport.WebDavConflictMessage(collectionUrl));
                 }
+
+                if (response.StatusCode is HttpStatusCode.OK
+                    or HttpStatusCode.Created
+                    or HttpStatusCode.NoContent
+                    or HttpStatusCode.MethodNotAllowed)
+                {
+                    log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] WebDAV folder ready: {collectionUrl}"));
+                    continue;
+                }
+
+                response.EnsureSuccessStatusCode();
             }
+        }
+
+        private static async Task SendWebDavFileAsync(
+            HttpMethod method,
+            string url,
+            HttpChallengeDeploymentOptions options,
+            string? body,
+            Action<string>? log)
+        {
+            var client = AcmeHttpClientFactory.GetClient(options.SkipTlsCertificateValidation);
+            using var request = new HttpRequestMessage(method, url);
+            if (body is not null)
+            {
+                request.Content = new StringContent(body, Encoding.UTF8, "text/plain");
+            }
+
+            ApplyHttpAuthentication(request, options);
+            using var response = await client.SendAsync(request);
+            if ((int)response.StatusCode == 409)
+            {
+                throw new InvalidOperationException(HttpDeploymentSupport.WebDavConflictMessage(url));
+            }
+
+            response.EnsureSuccessStatusCode();
+            log?.Invoke(HttpDeploymentSupport.RedactUrlForLog($"[HTTP-01] WebDAV {method.Method} completed for {url}"));
+        }
+
+        private sealed class SshNetSftpSession : ISftpFileSession
+        {
+            private readonly SftpClient _client;
+
+            public SshNetSftpSession(SftpClient client)
+            {
+                _client = client;
+            }
+
+            public bool Exists(string path) => _client.Exists(path);
+
+            public void CreateDirectory(string path) => _client.CreateDirectory(path);
+
+            public void UploadFile(Stream input, string path, bool canOverride) =>
+                _client.UploadFile(input, path, canOverride);
         }
 
         public async Task RevokeCertificateAsync(CertificateModel certificate)
@@ -1107,7 +1474,10 @@ namespace ACMECertManager
 
             try
             {
-                await acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, certPrivateKey);
+                await RetryBadNonceAsync(
+                    () => acme.RevokeCertificate(rawCertificate, RevocationReason.CessationOfOperation, certPrivateKey),
+                    log: null,
+                    "revoke certificate");
             }
             catch (AcmeRequestException ex)
             {
@@ -1621,6 +1991,96 @@ namespace ACMECertManager
             return parts.Count == 0 ? error.ToString() ?? "Unknown ACME error" : string.Join(" | ", parts);
         }
 
+        internal static string BuildAuthorizationFailureMessage(Certes.Acme.Resource.Authorization resource)
+        {
+            var identifier = resource?.Identifier?.Value;
+            var status = resource?.Status;
+            var failedChallenge = resource?.Challenges?
+                .FirstOrDefault(challenge => challenge?.Error is not null && challenge.Status == ChallengeStatus.Invalid)
+                ?? resource?.Challenges?.FirstOrDefault(challenge => challenge?.Error is not null);
+
+            if (failedChallenge?.Error is null)
+            {
+                return $"Authorization for '{identifier}' failed with status '{status}'. The ACME server did not report a challenge error.";
+            }
+
+            var error = failedChallenge.Error;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(error.Type))
+            {
+                parts.Add(error.Type);
+            }
+
+            if (!string.IsNullOrWhiteSpace(error.Detail))
+            {
+                parts.Add(error.Detail);
+            }
+
+            var errorText = parts.Count == 0 ? "no error detail provided" : string.Join(" - ", parts);
+            var challengeType = string.IsNullOrWhiteSpace(failedChallenge.Type) ? "unknown" : failedChallenge.Type;
+            var message = $"Authorization for '{identifier}' failed (status '{status}', challenge '{challengeType}'): {errorText}";
+            var detailParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(error.Detail))
+            {
+                detailParts.Add(error.Detail);
+            }
+
+            if (error.Subproblems is { Count: > 0 } subproblems)
+            {
+                var subs = subproblems
+                    .Where(sub => sub is not null)
+                    .Select(sub => string.Join(" - ", new[] { sub.Type, sub.Detail }.Where(v => !string.IsNullOrWhiteSpace(v))))
+                    .Where(text => text.Length > 0)
+                    .ToList();
+                foreach (var sub in subproblems)
+                {
+                    if (!string.IsNullOrWhiteSpace(sub?.Detail))
+                    {
+                        detailParts.Add(sub.Detail);
+                    }
+                }
+
+                var joined = string.Join("; ", subs);
+                if (joined.Length > 0)
+                {
+                    message += $" (subproblems: {joined})";
+                }
+            }
+
+            if (MentionsBlockedSecondaryValidation(string.Join(" ", detailParts)))
+            {
+                message += " " + HttpDeploymentSupport.SecondaryValidationHint;
+            }
+
+            return message;
+        }
+
+        internal static bool MentionsBlockedSecondaryValidation(string? detail)
+        {
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                return false;
+            }
+
+            var mentionsSecondary = detail.Contains("secondary validation", StringComparison.OrdinalIgnoreCase);
+            if (!mentionsSecondary)
+            {
+                return false;
+            }
+
+            return detail.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("connection reset", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("connection error", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("connection failure", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("could not connect", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("unable to connect", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("failed to connect", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("network is unreachable", StringComparison.OrdinalIgnoreCase)
+                || detail.Contains("no route to host", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static async Task WaitForAuthorizationValidAsync(IAuthorizationContext authz)
         {
             var deadline = DateTimeOffset.UtcNow + MaxWaitForAuthorization;
@@ -1640,8 +2100,7 @@ namespace ACMECertManager
                     status == Certes.Acme.Resource.AuthorizationStatus.Expired ||
                     status == Certes.Acme.Resource.AuthorizationStatus.Revoked)
                 {
-                    throw new InvalidOperationException(
-                        $"Authorization for '{resource.Identifier?.Value}' failed with status '{status}'.");
+                    throw new InvalidOperationException(BuildAuthorizationFailureMessage(resource));
                 }
 
                 await Task.Delay(GetPollDelay(authz.RetryAfter));
@@ -1794,7 +2253,7 @@ namespace ACMECertManager
 
                 if (status == OrderStatus.Valid)
                 {
-                    return await order.Download();
+                    return await RetryBadNonceAsync(() => order.Download(), log, "download certificate");
                 }
 
                 if (status == OrderStatus.Invalid)
@@ -1895,6 +2354,7 @@ namespace ACMECertManager
                         {
                             var buffer = System.Text.Encoding.UTF8.GetBytes(_keyAuth);
                             ctx.Response.StatusCode = (int)HttpStatusCode.OK;
+                            ctx.Response.ContentType = HttpDeploymentSupport.HttpChallengeContentType;
                             ctx.Response.OutputStream.Write(buffer, 0, buffer.Length);
                         }
                         else

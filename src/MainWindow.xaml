@@ -272,29 +272,52 @@
                                     <TextBlock Text="Target (directory path or endpoint URL)" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                     <ui:TextBox
                                         x:Name="txtHttpTarget"
-                                        PlaceholderText="\\server\share\.well-known\acme-challenge or https://host/..."/>
+                                        PlaceholderText="\\server\share\.well-known\acme-challenge or C:\path"/>
+                                    <TextBlock
+                                        x:Name="txtHttpTargetHint"
+                                        FontSize="12"
+                                        TextWrapping="Wrap"
+                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                        Margin="0,6,0,0"
+                                        Visibility="Collapsed"/>
                                 </StackPanel>
 
                                 <StackPanel x:Name="pnlHttpCredentials" Margin="0,0,0,10" Visibility="Collapsed">
                                     <TextBlock Text="Authentication" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                    <ui:TextBox
-                                        x:Name="txtHttpUsername"
-                                        PlaceholderText="Username"
-                                        Margin="0,0,0,8"/>
-                                    <ui:PasswordBox
-                                        x:Name="txtHttpPassword"
-                                        PlaceholderText="Password"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="120"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ui:TextBox
+                                            x:Name="txtHttpUsername"
+                                            Grid.Column="0"
+                                            PlaceholderText="Username"
+                                            Margin="0,0,8,0"/>
+                                        <ui:PasswordBox
+                                            x:Name="txtHttpPassword"
+                                            Grid.Column="1"
+                                            PlaceholderText="Password"
+                                            RevealButtonEnabled="True"
+                                            Margin="0,0,8,0"/>
+                                        <ui:TextBox
+                                            x:Name="txtHttpPort"
+                                            Grid.Column="2"
+                                            PlaceholderText="21"/>
+                                    </Grid>
                                 </StackPanel>
 
                                 <StackPanel x:Name="pnlHttpRest" Margin="0,0,0,10" Visibility="Collapsed">
                                     <TextBlock Text="REST Options" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                     <ui:TextBox x:Name="txtHttpRestMethod" Text="POST" PlaceholderText="HTTP method" Margin="0,0,0,8"/>
-                                    <ui:TextBox x:Name="txtHttpBearerToken" PlaceholderText="Bearer token (optional)" Margin="0,0,0,8"/>
+                                    <ui:PasswordBox
+                                        x:Name="txtHttpBearerToken"
+                                        PlaceholderText="Bearer token (optional)"
+                                        RevealButtonEnabled="True"
+                                        Margin="0,0,0,8"/>
                                     <ui:TextBox x:Name="txtHttpHeaderName" PlaceholderText="Additional header name (optional)" Margin="0,0,0,8"/>
-                                    <ui:TextBox x:Name="txtHttpHeaderValue" PlaceholderText="Additional header value (optional)" Margin="0,0,0,8"/>
-                                    <CheckBox
-                                        x:Name="chkHttpSkipTlsValidation"
-                                        Content="Skip TLS certificate validation (for private/self-signed endpoints)"/>
+                                    <ui:TextBox x:Name="txtHttpHeaderValue" PlaceholderText="Additional header value (optional)"/>
                                 </StackPanel>
 
                                 <StackPanel x:Name="pnlHttpPublicProbe" Visibility="Collapsed">
@@ -303,6 +326,14 @@
                                         x:Name="txtHttpPublicProbeTemplate"
                                         Text="http://{domain}/.well-known/acme-challenge/{token}"
                                         PlaceholderText="http://{domain}/.well-known/acme-challenge/{token}"/>
+                                    <CheckBox
+                                        x:Name="chkHttpDisablePublicProbe"
+                                        Content="Disable the public probe for this certificate"
+                                        Margin="0,8,0,0"/>
+                                    <CheckBox
+                                        x:Name="chkHttpSkipTlsValidation"
+                                        Content="Skip TLS certificate validation (for private/self-signed endpoints)"
+                                        Margin="0,8,0,0"/>
                                 </StackPanel>
                             </StackPanel>
                         </ui:Card>
@@ -415,12 +446,12 @@
                             <StackPanel>
                                 <TextBlock Text="Stored Secrets" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <TextBlock
-                                    Text="Review and manage DNS plugin credentials stored on this machine."
+                                    Text="Review and edit DNS plugin credentials and per-certificate HTTP upload credentials stored on this machine."
                                     Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                     TextWrapping="Wrap"
                                     Margin="0,0,0,12"/>
                                 <ui:Button
-                                    Content="Manage DNS Secrets"
+                                    Content="Manage Secrets"
                                     Icon="{ui:SymbolIcon Key24}"
                                     Appearance="Secondary"
                                     Click="ViewDnsSecrets_Click"
