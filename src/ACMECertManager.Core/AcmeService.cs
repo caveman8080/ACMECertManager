@@ -1782,6 +1782,51 @@ namespace ACMECertManager
             return parts.Count == 0 ? error.ToString() ?? "Unknown ACME error" : string.Join(" | ", parts);
         }
 
+        internal static string BuildAuthorizationFailureMessage(Certes.Acme.Resource.Authorization resource)
+        {
+            var identifier = resource?.Identifier?.Value;
+            var status = resource?.Status;
+            var failedChallenge = resource?.Challenges?
+                .FirstOrDefault(challenge => challenge?.Error is not null && challenge.Status == ChallengeStatus.Invalid)
+                ?? resource?.Challenges?.FirstOrDefault(challenge => challenge?.Error is not null);
+
+            if (failedChallenge?.Error is null)
+            {
+                return $"Authorization for '{identifier}' failed with status '{status}'. The ACME server did not report a challenge error.";
+            }
+
+            var error = failedChallenge.Error;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(error.Type))
+            {
+                parts.Add(error.Type);
+            }
+
+            if (!string.IsNullOrWhiteSpace(error.Detail))
+            {
+                parts.Add(error.Detail);
+            }
+
+            var errorText = parts.Count == 0 ? "no error detail provided" : string.Join(" - ", parts);
+            var challengeType = string.IsNullOrWhiteSpace(failedChallenge.Type) ? "unknown" : failedChallenge.Type;
+            var message = $"Authorization for '{identifier}' failed (status '{status}', challenge '{challengeType}'): {errorText}";
+
+            if (error.Subproblems is { Count: > 0 } subproblems)
+            {
+                var subs = subproblems
+                    .Where(sub => sub is not null)
+                    .Select(sub => string.Join(" - ", new[] { sub.Type, sub.Detail }.Where(v => !string.IsNullOrWhiteSpace(v))))
+                    .Where(text => text.Length > 0);
+                var joined = string.Join("; ", subs);
+                if (joined.Length > 0)
+                {
+                    message += $" (subproblems: {joined})";
+                }
+            }
+
+            return message;
+        }
+
         private static async Task WaitForAuthorizationValidAsync(IAuthorizationContext authz)
         {
             var deadline = DateTimeOffset.UtcNow + MaxWaitForAuthorization;
@@ -1801,8 +1846,7 @@ namespace ACMECertManager
                     status == Certes.Acme.Resource.AuthorizationStatus.Expired ||
                     status == Certes.Acme.Resource.AuthorizationStatus.Revoked)
                 {
-                    throw new InvalidOperationException(
-                        $"Authorization for '{resource.Identifier?.Value}' failed with status '{status}'.");
+                    throw new InvalidOperationException(BuildAuthorizationFailureMessage(resource));
                 }
 
                 await Task.Delay(GetPollDelay(authz.RetryAfter));
