@@ -274,7 +274,10 @@ namespace ACMECertManager
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not (
+                OutOfMemoryException
+                or StackOverflowException
+                or AccessViolationException))
             {
                 // Last resort: an unexpected issuance failure must be logged and shown instead of closing the window.
                 Log($"❌ Error: {ex.Message}");
@@ -619,7 +622,10 @@ namespace ACMECertManager
                 Log($"❌ Error: {ex.Message}");
                 MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not (
+                OutOfMemoryException
+                or StackOverflowException
+                or AccessViolationException))
             {
                 // Last resort: an unexpected renewal failure must be logged and shown instead of closing the window.
                 Log($"❌ Error: {ex.Message}");
