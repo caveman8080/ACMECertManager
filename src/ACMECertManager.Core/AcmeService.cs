@@ -2032,12 +2032,9 @@ namespace ACMECertManager
                     .Select(sub => string.Join(" - ", new[] { sub.Type, sub.Detail }.Where(v => !string.IsNullOrWhiteSpace(v))))
                     .Where(text => text.Length > 0)
                     .ToList();
-                foreach (var sub in subproblems.Where(sub => sub is not null))
+                foreach (var sub in subproblems.Where(sub => sub is not null && !string.IsNullOrWhiteSpace(sub.Detail)))
                 {
-                    if (!string.IsNullOrWhiteSpace(sub?.Detail))
-                    {
-                        detailParts.Add(sub.Detail);
-                    }
+                    detailParts.Add(sub.Detail);
                 }
 
                 var joined = string.Join("; ", subs);
