@@ -56,7 +56,9 @@ public sealed class PfxExportTests
         {
             foreach (var cert in collection)
             {
-                cert.Dispose();
+                using (cert)
+                {
+                }
             }
         }
     }
