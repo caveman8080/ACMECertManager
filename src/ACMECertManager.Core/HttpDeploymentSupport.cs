@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Renci.SshNet.Common;
@@ -186,7 +187,7 @@ namespace ACMECertManager
                 }
 
                 var port = uri.Port is >= 1 and <= 65535 && !uri.IsDefaultPort
-                    ? ":" + uri.Port.ToString()
+                    ? $":{uri.Port}"
                     : string.Empty;
                 var path = string.IsNullOrEmpty(uri.AbsolutePath) ? "/" : uri.AbsolutePath;
                 var tail = string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
@@ -252,11 +253,11 @@ namespace ACMECertManager
 
             var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
             var urls = new List<string>(segments.Length);
-            var path = string.Empty;
+            var path = new StringBuilder();
             foreach (var segment in segments)
             {
-                path += "/" + segment;
-                var builder = new UriBuilder(uri) { Path = path };
+                path.Append('/').Append(segment);
+                var builder = new UriBuilder(uri) { Path = path.ToString() };
                 urls.Add(builder.Uri.AbsoluteUri.TrimEnd('/'));
             }
 
@@ -366,7 +367,10 @@ namespace ACMECertManager
             {
                 await cleanup().ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not (
+                OutOfMemoryException
+                or StackOverflowException
+                or AccessViolationException))
             {
                 log?.Invoke(RedactUrlForLog($"{logPrefix} Cleanup warning: {ex.Message}"));
             }
@@ -384,7 +388,7 @@ namespace ACMECertManager
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 return ex;
             }

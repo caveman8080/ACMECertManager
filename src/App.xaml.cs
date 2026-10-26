@@ -54,7 +54,9 @@ namespace ACMECertManager
                     : e.Exception.Message;
                 System.Windows.MessageBox.Show(message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is InvalidOperationException
+                or System.ComponentModel.Win32Exception
+                or System.Security.SecurityException)
             {
                 // Last resort: this dialog runs inside the global UI handler. A failure while showing it must not close the app.
             }
@@ -85,7 +87,11 @@ namespace ACMECertManager
 
                 logManager.WriteLog($"❌ Unhandled {source}: {exception}");
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or System.Security.SecurityException
+                or ArgumentException
+                or NotSupportedException)
             {
                 // Last resort: logging an unhandled exception must not throw and take the process down.
             }
